@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"sync"
+
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 )
 
 type User struct{ Name, Branch string }
@@ -21,8 +24,15 @@ func (s *Sessions) Login(w http.ResponseWriter, r *http.Request, username, passw
 	switch {
 	case username == "admin" && password == "admin":
 		u = User{Name: "admin", Branch: "ALL"}
-	case username == "branch001" && password == "demo":
-		u = User{Name: "branch001", Branch: "001"}
+	case strings.HasPrefix(username, "branch") && password == "demo":
+		branch := strings.TrimPrefix(username, "branch")
+		if branch == "ALL" {
+			return false
+		}
+		if _, ok := domain.BranchLabel(branch); !ok {
+			return false
+		}
+		u = User{Name: username, Branch: branch}
 	default:
 		return false
 	}

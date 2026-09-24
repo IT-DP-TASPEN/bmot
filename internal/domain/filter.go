@@ -2,7 +2,6 @@ package domain
 
 import (
 	"errors"
-	"strconv"
 	"time"
 )
 
@@ -20,11 +19,8 @@ func ParseFilterAt(mode, period, branch string, latest time.Time) (Filter, error
 	if branch == "" {
 		branch = "ALL"
 	}
-	if branch != "ALL" {
-		n, err := strconv.Atoi(branch)
-		if err != nil || len(branch) != 3 || n < 0 || n > 8 {
-			return Filter{}, errors.New("cabang tidak valid")
-		}
+	if _, ok := BranchLabel(branch); !ok {
+		return Filter{}, errors.New("cabang tidak valid")
 	}
 	var layout string
 	switch mode {

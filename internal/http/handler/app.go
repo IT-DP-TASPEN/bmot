@@ -98,14 +98,6 @@ func (a *App) index(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageData, bool) {
 	u, _ := a.Sessions.User(r)
-	branch := r.URL.Query().Get("branch")
-	if u.Branch != "ALL" {
-		if branch != "" && branch != u.Branch {
-			http.Error(w, "Cabang tidak diizinkan", http.StatusForbidden)
-			return PageData{}, false
-		}
-		branch = u.Branch
-	}
 	latest := a.LatestDate
 	if a.Latest != nil {
 		latest = a.Latest()
@@ -113,10 +105,13 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageD
 	if latest.IsZero() {
 		latest = domain.LastMockDate
 	}
-	f, err := domain.ParseFilterAt(r.URL.Query().Get("mode"), r.URL.Query().Get("period"), branch, latest)
+	f, err := domain.ParseFilterAt(r.URL.Query().Get("mode"), r.URL.Query().Get("period"), r.URL.Query().Get("branch"), latest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return PageData{}, false
+	}
+	if u.Branch != "ALL" && active != "kinerja" {
+		f.Branch = u.Branch
 	}
 	d := PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year(), RefreshAllowed: a.Refresh != nil && r.URL.Path != "/nominatif"}
 	if source, ok := a.Service.(interface {

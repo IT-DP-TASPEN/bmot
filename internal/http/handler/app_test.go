@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/http/middleware"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/mock"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/view"
 )
@@ -44,14 +46,14 @@ func TestRoutesLoginAndBranchScope(t *testing.T) {
 		if w.Code != 200 {
 			t.Fatalf("%s: %d %s", route, w.Code, w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "Cabang 001") && !strings.Contains(w.Body.String(), "001 🔒") {
+		if !strings.Contains(w.Body.String(), "001 - KPO") {
 			t.Fatalf("branch scope missing on %s", route)
 		}
 		if route == "/kredit" && strings.Contains(w.Body.String(), "Limit") {
 			t.Fatal("limit still appears on the Kredit dashboard")
 		}
 	}
-	if w := serve("GET", "/dashboard?branch=002", "", cookie); w.Code != http.StatusForbidden {
+	if w := serve("GET", "/dashboard?branch=002", "", cookie); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "001 - KPO 🔒") {
 		t.Fatalf("cross branch status %d", w.Code)
 	}
 	if w := serve("POST", "/logout", "", cookie); w.Code != http.StatusSeeOther {
@@ -101,9 +103,9 @@ func TestReportingContextRendersInContent(t *testing.T) {
 			w := httptest.NewRecorder()
 			app.Routes().ServeHTTP(w, req)
 			body := w.Body.String()
-			expectedDate := "Posisi 24 September 2026 · Cabang 001"
+			expectedDate := "Posisi 24 September 2026 · 001 - KPO"
 			if strings.HasPrefix(path, "/nominatif") {
-				expectedDate = "Periode berakhir 24 September 2026 · Cabang 001"
+				expectedDate = "Periode berakhir 24 September 2026 · 001 - KPO"
 			}
 			if w.Code != http.StatusOK || !strings.Contains(body, expectedDate) || !strings.Contains(body, "aria-label=\"Konteks pelaporan\"") || !strings.Contains(body, "value=\"monthly\" selected") || !strings.Contains(body, "value=\"001\" selected") {
 				t.Fatalf("context missing on %s (partial=%t): %d %s", path, partial, w.Code, body)
@@ -114,6 +116,156 @@ func TestReportingContextRendersInContent(t *testing.T) {
 					t.Fatalf("reporting context leaked into topbar on %s", path)
 				}
 			}
+		}
+	}
+}
+
+type branchSpy struct {
+	service.DashboardService
+	last  domain.Filter
+	calls int
+}
+
+func (s *branchSpy) record(f domain.Filter) { s.last, s.calls = f, s.calls+1 }
+func (s *branchSpy) GetOverview(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
+	s.record(f)
+	return s.DashboardService.GetOverview(ctx, f)
+}
+func (s *branchSpy) GetSavings(ctx context.Context, f domain.Filter, category string) (domain.Dashboard, error) {
+	s.record(f)
+	return s.DashboardService.GetSavings(ctx, f, category)
+}
+func (s *branchSpy) GetDeposits(ctx context.Context, f domain.Filter, category string) (domain.Dashboard, error) {
+	s.record(f)
+	return s.DashboardService.GetDeposits(ctx, f, category)
+}
+func (s *branchSpy) GetLoans(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
+	s.record(f)
+	return s.DashboardService.GetLoans(ctx, f)
+}
+func (s *branchSpy) GetFinancialPerformance(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
+	s.record(f)
+	return s.DashboardService.GetFinancialPerformance(ctx, f)
+}
+func (s *branchSpy) GetNominative(ctx context.Context, f domain.NominativeFilter) (domain.NominativeResult, error) {
+	s.record(f.Filter)
+	return s.DashboardService.GetNominative(ctx, f)
+}
+
+func TestPageAwareBranchScope(t *testing.T) {
+	renderer, err := view.New("../../../web/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &branchSpy{DashboardService: mock.NewDashboardService()}
+	app := &App{Service: spy, Sessions: middleware.NewSessions(), View: renderer}
+	serve := func(method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		app.Routes().ServeHTTP(w, req)
+		return w
+	}
+	login := func(username string) *http.Cookie {
+		password := "demo"
+		if username == "admin" {
+			password = "admin"
+		}
+		w := serve("POST", "/login", url.Values{"username": {username}, "password": {password}}.Encode(), nil)
+		if w.Code != http.StatusSeeOther || len(w.Result().Cookies()) == 0 {
+			t.Fatalf("login %s: %d", username, w.Code)
+		}
+		return w.Result().Cookies()[0]
+	}
+	branchUser := login("branch007")
+	for _, tc := range []struct {
+		name, path, want string
+		picker           bool
+	}{
+		{"ringkasan", "/dashboard?branch=003", "007", false},
+		{"tabungan", "/tabungan?branch=ALL", "007", false},
+		{"deposito", "/deposito?branch=003", "007", false},
+		{"kinerja branch", "/kinerja?branch=003", "003", true},
+		{"kinerja konsolidasi", "/kinerja?branch=ALL", "ALL", true},
+		{"kredit after kinerja", "/kredit?branch=003&mode=daily&period=2026-09-23", "007", false},
+		{"nominatif", "/nominatif?domain=kredit&category=organik&metric=bade&branch=003", "007", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := serve("GET", tc.path, "", branchUser)
+			if w.Code != http.StatusOK || spy.last.Branch != tc.want {
+				t.Fatalf("status %d, service branch %q, body %s", w.Code, spy.last.Branch, w.Body.String())
+			}
+			if tc.name == "kredit after kinerja" && (spy.last.Mode != "daily" || spy.last.Period != "2026-09-23") {
+				t.Fatalf("reporting context lost: %+v", spy.last)
+			}
+			if !strings.Contains(w.Body.String(), "value=\""+tc.want+"\"") {
+				t.Fatalf("effective branch missing from UI: %s", w.Body.String())
+			}
+			if tc.picker && !strings.Contains(w.Body.String(), "<select name=\"branch\">") {
+				t.Fatal("Kinerja branch picker missing")
+			}
+			if !tc.picker && strings.Contains(w.Body.String(), "<select name=\"branch\">") {
+				t.Fatal("restricted branch picker exposed")
+			}
+			if tc.name == "kinerja branch" && (!strings.Contains(w.Body.String(), "href=\"/kredit?branch=007") || !strings.Contains(w.Body.String(), "href=\"/kinerja?branch=003")) {
+				t.Fatal("navigation did not keep the destination page's branch scope")
+			}
+		})
+	}
+	admin := login("admin")
+	for _, path := range []string{"/dashboard?branch=003", "/tabungan?branch=003", "/kredit?branch=003", "/kinerja?branch=003"} {
+		w := serve("GET", path, "", admin)
+		if w.Code != http.StatusOK || spy.last.Branch != "003" {
+			t.Fatalf("admin %s: status %d, branch %q", path, w.Code, spy.last.Branch)
+		}
+	}
+	for _, path := range []string{"/kinerja?branch=000", "/dashboard?branch=999", "/kredit?branch=evil"} {
+		calls := spy.calls
+		w := serve("GET", path, "", branchUser)
+		if w.Code != http.StatusBadRequest || spy.calls != calls {
+			t.Fatalf("invalid %s: status %d, calls %d -> %d", path, w.Code, calls, spy.calls)
+		}
+	}
+}
+
+func TestBranchLabelsRender(t *testing.T) {
+	renderer, err := view.New("../../../web/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(), View: renderer}
+	login := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/login", strings.NewReader("username=admin&password=admin"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	app.Routes().ServeHTTP(login, req)
+	req = httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(login.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	app.Routes().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	for _, option := range []struct{ code, label string }{
+		{"ALL", "Konsolidasi"},
+		{"001", "001 - KPO"},
+		{"002", "002 - KC Bogor"},
+		{"003", "003 - KC Depok"},
+		{"004", "004 - KC Tangerang"},
+		{"005", "005 - KC Jaktim"},
+		{"006", "006 - KC Karawang"},
+		{"007", "007 - KC Cikarang"},
+		{"008", "008 - KC Purwokerto"},
+	} {
+		if !strings.Contains(w.Body.String(), "value=\""+option.code+"\"") {
+			t.Errorf("missing option %s", option.label)
+		}
+		if !strings.Contains(w.Body.String(), ">"+option.label+"</option>") {
+			t.Errorf("missing label %s", option.label)
 		}
 	}
 }

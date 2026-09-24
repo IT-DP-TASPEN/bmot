@@ -123,17 +123,17 @@ func FuncMap() template.FuncMap {
 				Filter domain.Filter
 			}{m, f}
 		},
-		"seq": func(from, to int) []int {
-			var out []int
-			for i := from; i <= to; i++ {
-				out = append(out, i)
+		"branches":    func() []domain.BranchOption { return domain.Branches },
+		"branchLabel": func(code string) string { label, _ := domain.BranchLabel(code); return label },
+		"categories":  func() []string { return []string{"abp", "dpk", "jatuh-tempo"} },
+		"upper":       strings.ToUpper,
+		"link":        func(path string, f domain.Filter) string { return link(path, f, nil) },
+		"navlink": func(path string, f domain.Filter, userBranch string) string {
+			if userBranch != "ALL" {
+				f.Branch = userBranch
 			}
-			return out
+			return link(path, f, nil)
 		},
-		"branch":     func(n int) string { return fmt.Sprintf("%03d", n) },
-		"categories": func() []string { return []string{"abp", "dpk", "jatuh-tempo"} },
-		"upper":      strings.ToUpper,
-		"link":       func(path string, f domain.Filter) string { return link(path, f, nil) },
 		"tablink": func(path string, f domain.Filter, category string) string {
 			return link(path, f, map[string]string{"category": category})
 		},

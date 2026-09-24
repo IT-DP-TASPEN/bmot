@@ -27,4 +27,7 @@ func TestFilterCutoffs(t *testing.T) {
 	if _, err := ParseFilter("monthly", "2026-09", "999"); err == nil {
 		t.Fatal("accepted invalid branch")
 	}
+	if _, err := ParseFilter("monthly", "2026-09", "000"); err == nil {
+		t.Fatal("accepted nonexistent branch 000")
+	}
 }

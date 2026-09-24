@@ -35,7 +35,9 @@
     if (category && selected) category.value = new URL(selected.href).searchParams.get('category') || category.value;
     if (filter) document.querySelectorAll('.sidebar .brand, .sidebar nav a').forEach(link => {
       const url = new URL(link.href);
-      for (const name of ['mode', 'period', 'branch']) url.searchParams.set(name, filter.elements.namedItem(name).value);
+      for (const name of ['mode', 'period']) url.searchParams.set(name, filter.elements.namedItem(name).value);
+      const userBranch = document.getElementById('sidebar').dataset.userBranch;
+      url.searchParams.set('branch', userBranch === 'ALL' || url.pathname === '/kinerja' ? filter.elements.namedItem('branch').value : userBranch);
       link.href = url.href;
     });
   }
