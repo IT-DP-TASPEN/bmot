@@ -9,7 +9,7 @@ import (
 
 type account struct {
 	name, number, cif, branch, product, category, kind, collectibility string
-	base, ceiling, dailyBooking                                        int64
+	base, dailyBooking                                                 int64
 	dueOffset                                                          int
 }
 
@@ -36,7 +36,7 @@ func seed() []account {
 				a := account{
 					name: names[(i+b*3)%len(names)], number: fmt.Sprintf("%03d-%02d-%05d", b, specIdx+1, i+1),
 					cif: fmt.Sprintf("C%03d%05d", b, i+1), branch: branch, product: spec.product, category: spec.category, kind: spec.kind,
-					base: base, ceiling: base * 13 / 10, dailyBooking: base / 850,
+					base: base, dailyBooking: base / 850,
 					dueOffset: (i*17+b*11)%90 + 1,
 				}
 				if spec.kind == "kredit" {

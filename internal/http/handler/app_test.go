@@ -47,6 +47,9 @@ func TestRoutesLoginAndBranchScope(t *testing.T) {
 		if !strings.Contains(w.Body.String(), "Cabang 001") && !strings.Contains(w.Body.String(), "001 🔒") {
 			t.Fatalf("branch scope missing on %s", route)
 		}
+		if route == "/kredit" && strings.Contains(w.Body.String(), "Limit") {
+			t.Fatal("limit still appears on the Kredit dashboard")
+		}
 	}
 	if w := serve("GET", "/dashboard?branch=002", "", cookie); w.Code != http.StatusForbidden {
 		t.Fatalf("cross branch status %d", w.Code)

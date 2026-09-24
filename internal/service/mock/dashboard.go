@@ -36,8 +36,6 @@ func (s *DashboardService) sum(f domain.Filter, kind, category, metric string) i
 		switch metric {
 		case "balance", "bade":
 			total += balance(a, f.Date)
-		case "limit":
-			total += a.ceiling
 		case "booking":
 			total += booking(a, domain.PeriodStart(f), f.Date)
 		case "noa":
@@ -195,16 +193,7 @@ func (s *DashboardService) GetLoans(_ context.Context, f domain.Filter) (domain.
 		g := domain.Group{Title: label, Metrics: []domain.Metric{
 			s.metric(f, "Booking", "kredit", cat, "booking", "rupiah"),
 			s.metric(f, "BADE", "kredit", cat, "bade", "rupiah"),
-			s.metric(f, "Limit", "kredit", cat, "limit", "rupiah"),
 		}}
-		util := domain.Metric{Label: "Utilisasi Limit", Unit: "percent"}
-		if g.Metrics[2].Value > 0 {
-			util.Value = g.Metrics[1].Value * 10000 / g.Metrics[2].Value
-		}
-		if g.Metrics[2].Previous > 0 {
-			util.Previous = g.Metrics[1].Previous * 10000 / g.Metrics[2].Previous
-		}
-		g.Metrics = append(g.Metrics, util)
 		d.Groups = append(d.Groups, g)
 		d.Series = append(d.Series, s.trend(f, "kredit", cat, "booking", label+" Booking"), s.trend(f, "kredit", cat, "bade", label+" BADE"))
 	}
@@ -301,7 +290,7 @@ func (s *DashboardService) GetFinancialPerformance(_ context.Context, f domain.F
 }
 
 func (s *DashboardService) GetNominative(_ context.Context, f domain.NominativeFilter) (domain.NominativeResult, error) {
-	allowed := map[string]map[string]bool{"tabungan": {"balance": true, "noa": true}, "deposito": {"balance": true, "noa": true}, "kredit": {"booking": true, "bade": true, "limit": true}}
+	allowed := map[string]map[string]bool{"tabungan": {"balance": true, "noa": true}, "deposito": {"balance": true, "noa": true}, "kredit": {"booking": true, "bade": true}}
 	if !allowed[f.Domain][f.Metric] {
 		return domain.NominativeResult{}, errors.New("metrik nominatif tidak valid")
 	}
@@ -323,7 +312,7 @@ func (s *DashboardService) GetNominative(_ context.Context, f domain.NominativeF
 	if f.Bucket != "" && f.Category != "jatuh-tempo" {
 		return domain.NominativeResult{}, errors.New("rentang hanya untuk jatuh tempo")
 	}
-	metricLabel := map[string]string{"balance": "Saldo", "bade": "BADE", "booking": "Booking", "limit": "Limit", "noa": "NOA"}[f.Metric]
+	metricLabel := map[string]string{"balance": "Saldo", "bade": "BADE", "booking": "Booking", "noa": "NOA"}[f.Metric]
 	if f.Domain == "deposito" && f.Metric == "balance" {
 		metricLabel = "Nominal"
 	}
@@ -344,13 +333,10 @@ func (s *DashboardService) GetNominative(_ context.Context, f domain.NominativeF
 			if f.Metric == "booking" {
 				amount = booking(a, domain.PeriodStart(f.Filter), f.Date)
 			}
-			if f.Metric == "limit" {
-				amount = a.ceiling
-			}
 			if f.Metric == "noa" {
 				amount = 1
 			}
-			row := domain.Record{Name: a.name, Account: a.number, CIF: a.cif, Branch: a.branch, Product: a.product, Collectibility: a.collectibility, Amount: amount, Limit: a.ceiling, Outstanding: balance(a, f.Date), Due: dueDate(a, f.Date)}
+			row := domain.Record{Name: a.name, Account: a.number, CIF: a.cif, Branch: a.branch, Product: a.product, Collectibility: a.collectibility, Amount: amount, Outstanding: balance(a, f.Date), Due: dueDate(a, f.Date)}
 			rows = append(rows, row)
 			res.Total += amount
 		})

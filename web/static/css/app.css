@@ -30,7 +30,8 @@ input,select { outline:none }
 .brand small { display:block; margin-top:var(--space-1); color:rgb(255 255 255 / 75%); font-size:var(--font-small) }
 .nav-label { margin:var(--space-6) var(--space-5) var(--space-2); color:rgb(255 255 255 / 65%); font-size:var(--font-small); font-weight:var(--weight-label) }
 .sidebar nav { display:grid; gap:var(--space-1); padding:0 var(--space-2) }
-.nav-item { min-height:var(--control-height); display:flex; align-items:center; padding:0 var(--space-3); border-left:3px solid transparent; border-radius:var(--radius); color:rgb(255 255 255 / 84%); font-weight:var(--weight-label) }
+.nav-item { min-height:var(--control-height); display:flex; align-items:center; gap:var(--space-3); padding:0 var(--space-3); border-left:3px solid transparent; border-radius:var(--radius); color:rgb(255 255 255 / 84%); font-weight:var(--weight-label) }
+.nav-icon { width:18px; height:18px; flex:none; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
 .nav-item:hover { background:rgb(255 255 255 / 12%); color:#fff }
 .nav-item.active { background:var(--color-primary-hover); border-left-color:var(--color-accent); color:#fff }
 .sidebar-foot { margin:auto var(--space-5) var(--space-5); color:rgb(255 255 255 / 60%); font-size:var(--font-small) }

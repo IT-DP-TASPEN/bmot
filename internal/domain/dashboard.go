@@ -61,7 +61,7 @@ type NominativeFilter struct {
 
 type Record struct {
 	Name, Account, CIF, Branch, Product, Collectibility string
-	Amount, Limit, Outstanding                          int64
+	Amount, Outstanding                                 int64
 	Due                                                 time.Time
 }
 

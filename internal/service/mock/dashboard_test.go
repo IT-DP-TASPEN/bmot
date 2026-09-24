@@ -22,8 +22,8 @@ func TestReconciliationAndFilters(t *testing.T) {
 		for _, tc := range []struct{ kind, category, key string }{
 			{"tabungan", "dpk", "balance"}, {"tabungan", "abp", "balance"},
 			{"deposito", "dpk", "balance"}, {"deposito", "abp", "balance"},
-			{"kredit", "organik", "booking"}, {"kredit", "organik", "bade"}, {"kredit", "organik", "limit"},
-			{"kredit", "channeling", "booking"}, {"kredit", "channeling", "bade"}, {"kredit", "channeling", "limit"},
+			{"kredit", "organik", "booking"}, {"kredit", "organik", "bade"},
+			{"kredit", "channeling", "booking"}, {"kredit", "channeling", "bade"},
 		} {
 			var branchSum int64
 			for i := 0; i <= 8; i++ {
@@ -99,20 +99,28 @@ func TestComparisonAndTrend(t *testing.T) {
 	s := NewDashboardService()
 	f, _ := domain.ParseFilter("monthly", "2026-09", "001")
 	d, _ := s.GetLoans(context.Background(), f)
-	booking := d.Groups[0].Metrics[0]
-	if booking.Previous != s.sum(domain.Previous(f), "kredit", "channeling", "booking") {
-		t.Fatal("booking comparison mismatch")
+	if len(d.Groups) != 2 || len(d.Series) != 4 {
+		t.Fatalf("loan groups or trends changed: %+v", d)
 	}
-	if booking.Value == booking.Previous {
+	for i, category := range []string{"channeling", "organik"} {
+		if len(d.Groups[i].Metrics) != 2 {
+			t.Fatalf("%s has %d metrics", category, len(d.Groups[i].Metrics))
+		}
+		for j, key := range []string{"booking", "bade"} {
+			metric := d.Groups[i].Metrics[j]
+			points := d.Series[i*2+j].Points
+			if metric.Key != key || metric.Value != s.sum(f, "kredit", category, key) || metric.Previous != s.sum(domain.Previous(f), "kredit", category, key) {
+				t.Fatalf("%s %s did not reconcile: %+v", category, key, metric)
+			}
+			if len(points) != 12 || points[11].Value != metric.Value || points[0].Label == points[11].Label {
+				t.Fatalf("%s %s trend did not reconcile: %+v", category, key, points)
+			}
+		}
+	}
+	if d.Groups[0].Metrics[0].Value == d.Groups[0].Metrics[0].Previous {
 		t.Fatal("booking mock trend did not change")
 	}
-	if len(d.Series[0].Points) != 12 {
-		t.Fatalf("trend has %d points", len(d.Series[0].Points))
-	}
-	if d.Series[0].Points[11].Value != booking.Value {
-		t.Fatal("trend current point mismatch")
-	}
-	if d.Series[0].Points[0].Label == d.Series[0].Points[11].Label {
-		t.Fatal("trend labels repeated")
+	if _, err := s.GetNominative(context.Background(), domain.NominativeFilter{Filter: f, Domain: "kredit", Category: "organik", Metric: "limit"}); err == nil {
+		t.Fatal("limit drill-down is still available")
 	}
 }
