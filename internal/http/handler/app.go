@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/http/middleware"
@@ -15,9 +16,11 @@ import (
 )
 
 type App struct {
-	Service  service.DashboardService
-	Sessions *middleware.Sessions
-	View     *view.Renderer
+	Service    service.DashboardService
+	Sessions   *middleware.Sessions
+	View       *view.Renderer
+	LatestDate time.Time
+	Demo       bool
 }
 
 type Chart struct{ Title, Series, Type, Caption string }
@@ -28,6 +31,8 @@ type PageData struct {
 	Dashboard                                                                                  domain.Dashboard
 	Nominative                                                                                 domain.NominativeResult
 	Charts                                                                                     []Chart
+	Demo                                                                                       bool
+	MaxYear                                                                                    int
 }
 
 func (a *App) Routes() http.Handler {
@@ -94,12 +99,16 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageD
 		}
 		branch = u.Branch
 	}
-	f, err := domain.ParseFilter(r.URL.Query().Get("mode"), r.URL.Query().Get("period"), branch)
+	latest := a.LatestDate
+	if latest.IsZero() {
+		latest = domain.LastMockDate
+	}
+	f, err := domain.ParseFilterAt(r.URL.Query().Get("mode"), r.URL.Query().Get("period"), branch, latest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return PageData{}, false
 	}
-	return PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f}, true
+	return PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year()}, true
 }
 
 func (a *App) finish(w http.ResponseWriter, r *http.Request, d PageData, dashboard domain.Dashboard, err error) {
@@ -126,7 +135,7 @@ func charts(s []domain.Series, page, mode string) []Chart {
 	switch page {
 	case "dashboard":
 		if len(s) >= 4 {
-			return []Chart{makeChart("Tren Dana Pihak Ketiga", s[:2]), makeChart("Tren Outstanding Kredit", s[2:4])}
+			return []Chart{makeChart("Tren Tabungan & Deposito", s[:2]), makeChart("Tren Outstanding Kredit", s[2:4])}
 		}
 	case "kredit":
 		if len(s) >= 4 {

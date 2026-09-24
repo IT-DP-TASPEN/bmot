@@ -10,6 +10,10 @@ var LastMockDate = time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 var FirstMockDate = time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC)
 
 func ParseFilter(mode, period, branch string) (Filter, error) {
+	return ParseFilterAt(mode, period, branch, LastMockDate)
+}
+
+func ParseFilterAt(mode, period, branch string, latest time.Time) (Filter, error) {
 	if mode == "" {
 		mode = "monthly"
 	}
@@ -27,17 +31,17 @@ func ParseFilter(mode, period, branch string) (Filter, error) {
 	case "daily":
 		layout = "2006-01-02"
 		if period == "" {
-			period = LastMockDate.Format(layout)
+			period = latest.Format(layout)
 		}
 	case "monthly":
 		layout = "2006-01"
 		if period == "" {
-			period = LastMockDate.Format(layout)
+			period = latest.Format(layout)
 		}
 	case "yearly":
 		layout = "2006"
 		if period == "" {
-			period = LastMockDate.Format(layout)
+			period = latest.Format(layout)
 		}
 	default:
 		return Filter{}, errors.New("mode periode tidak valid")
@@ -52,8 +56,8 @@ func ParseFilter(mode, period, branch string) (Filter, error) {
 	if mode == "yearly" {
 		d = time.Date(d.Year(), 12, 31, 0, 0, 0, 0, time.UTC)
 	}
-	if d.After(LastMockDate) && (mode == "monthly" && period == LastMockDate.Format("2006-01") || mode == "yearly" && period == LastMockDate.Format("2006")) {
-		d = LastMockDate
+	if d.After(latest) && (mode == "monthly" && period == latest.Format("2006-01") || mode == "yearly" && period == latest.Format("2006")) {
+		d = latest
 	}
 	return Filter{Mode: mode, Period: period, Date: d, Branch: branch}, nil
 }

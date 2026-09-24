@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/http/handler"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/http/middleware"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/dwh"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/mock"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/view"
 )
@@ -40,17 +43,28 @@ func main() {
 		source = "mock"
 	}
 	var dashboard service.DashboardService
+	var latestDate time.Time
+	var closeDWH func() error
 	switch source {
 	case "mock":
 		dashboard = mock.NewDashboardService()
+	case "dwh":
+		repo, latest, err := dwh.Open(context.Background(), os.Getenv("DWH_DBSTRING"))
+		if err != nil {
+			log.Fatalf("DWH unavailable: %v", err)
+		}
+		dashboard, latestDate, closeDWH = dwh.NewDashboardService(repo), latest, repo.Close
 	default:
 		log.Fatalf("unsupported DASHBOARD_DATA_SOURCE %q", source)
+	}
+	if closeDWH != nil {
+		defer closeDWH()
 	}
 	renderer, err := view.New("web/templates")
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := &handler.App{Service: dashboard, Sessions: middleware.NewSessions(), View: renderer}
+	app := &handler.App{Service: dashboard, Sessions: middleware.NewSessions(), View: renderer, LatestDate: latestDate, Demo: source == "mock"}
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8080"

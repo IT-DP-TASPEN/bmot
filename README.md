@@ -1,6 +1,6 @@
 # Roro Jongrang Management Dashboard
 
-An internal BPR management dashboard for UI and workflow review. All figures are **deterministic demo data**, not bank data or regulatory calculations. The application is shaped for a later DWH data source: HTTP handlers depend on `service.DashboardService`, and the current implementation lives in `internal/service/mock`.
+An internal BPR management dashboard with selectable mock and read-only DWH data sources. HTTP handlers depend on `service.DashboardService`; implementations live in `internal/service/mock` and `internal/service/dwh`.
 
 ## Run
 
@@ -12,14 +12,14 @@ go mod download
 go run ./cmd/web
 ```
 
-Open <http://localhost:8080/login>. `ADDR` changes the listening address; `DASHBOARD_DATA_SOURCE=mock` selects the current data source. No database, ORM, npm build, or external runtime service is required. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
+Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. Set `DASHBOARD_DATA_SOURCE=dwh` and provide `DWH_DBSTRING` in the runtime environment to use the external DWH. The DWH connection has its own pool and every application query runs in a read-only transaction. Never point a writable application database or migrations at the DWH. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
 
 | Demo user | Password | Access |
 | --- | --- | --- |
 | `admin` | `admin` | Consolidated view and branches 000–008 |
 | `branch001` | `demo` | Branch 001 only |
 
-Authentication uses in-memory opaque sessions and fixed demo credentials. Sessions end when the process restarts. Replace this component before any production use.
+Authentication uses in-memory opaque sessions and fixed demo credentials. Sessions end when the process restarts. Replace this component before production use, including when viewing real DWH data.
 
 ## Routes
 
@@ -41,11 +41,9 @@ Filters are bookmarkable query parameters: `mode=daily|monthly|yearly`, `period=
 
 Demo history runs from 1 September 2024 through 24 September 2026. Daily mode compares with the previous calendar date. Monthly and yearly balance figures are as-of snapshots; booking and profit are period flows. The current open month/year compares flows with the matching cutoff in the previous month/year. Dates outside the demo range show an empty state. Rupiah values use `int64`; ratios use hundredths of a percentage point for display.
 
-To add DWH data later, implement `internal/service/dwh` against `service.DashboardService` and select it in `cmd/web` via `DASHBOARD_DATA_SOURCE`. Keep the DTO meanings and filter behavior stable; handlers and templates require no data-source branches.
+DWH table mappings, branch scope, formulas, sampled data shape, and the owner's blocked ABA assumption are recorded in [the DWH audit](docs/DWH_AUDIT.md). The real source uses the latest common DWH snapshot as the default date. Monthly and yearly positions select one reporting-date snapshot; Booking uses the selected period. Cash Ratio currently assumes blocked ABA is zero, as directed by the dashboard owner.
 
-### OWNER DECISION REQUIRED
-
-Before DWH integration, confirm the bank's formal DPK/ABP definitions, financial account mappings and ratio formulas, and thresholds for favorable/warning status. The current financial facts are isolated mock assumptions; direction changes are intentionally neutral.
+The mock's financial facts remain illustrative; the DWH service uses the audited Fincloud mappings. Direction changes remain neutral.
 
 ## Checks
 
