@@ -1,8 +1,8 @@
-{{define "layout"}}<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{if eq .Page "login"}}Masuk{{else}}{{.Dashboard.Title}}{{if eq .Page "nominative"}}Nominatif{{end}}{{end}} · Roro Jongrang</title><link rel="stylesheet" href="/static/css/app.css"></head><body>
+{{define "layout"}}<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{if eq .Page "login"}}Masuk{{else if eq .Active "dashboard"}}Ringkasan{{else}}{{.Dashboard.Title}}{{if eq .Page "nominative"}}Nominatif{{end}}{{end}} · Roro Jongrang</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/css/app.css"></head><body>
 {{if eq .Page "login"}}{{template "content" .}}{{else}}
 <div class="app-shell">
 <aside class="sidebar" id="sidebar"><a class="brand" href="/dashboard"><span class="brand-mark">RJ</span><span><strong>Roro Jongrang</strong><small>Management Dashboard</small></span></a><div class="nav-label">MENU UTAMA</div><nav aria-label="Navigasi utama">
-<a href="{{link "/dashboard" .Filter}}" class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Overview</a>
+<a href="{{link "/dashboard" .Filter}}" class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Ringkasan</a>
 <a href="{{link "/tabungan" .Filter}}" class="nav-item {{if eq .Active "tabungan"}}active{{end}}">Tabungan</a>
 <a href="{{link "/deposito" .Filter}}" class="nav-item {{if eq .Active "deposito"}}active{{end}}">Deposito</a>
 <a href="{{link "/kredit" .Filter}}" class="nav-item {{if eq .Active "kredit"}}active{{end}}">Kredit</a>

@@ -10,12 +10,13 @@
       const series = JSON.parse(el.dataset.series || '[]');
       if (!series.length || !series[0].Points?.length) { el.textContent = 'Tidak ada data untuk periode dan cabang yang dipilih.'; return; }
       const chart = echarts.getInstanceByDom(el) || echarts.init(el);
-      chart.setOption({ color: ['#245b8c', '#4b9b8b'], grid: { left: 15, right: 20, top: 38, bottom: 24, containLabel: true },
-        legend: { top: 8, right: 15, textStyle: { color: '#738497', fontSize: 11 } },
-        tooltip: { trigger: 'axis', valueFormatter: rupiah },
-        xAxis: { type: 'category', boundaryGap: el.dataset.type === 'bar', data: series[0].Points.map(p => p.Label), axisLabel: { color: '#8090a0', fontSize: 10 }, axisLine: { lineStyle: { color: '#dfe7ee' } } },
-        yAxis: { type: 'value', scale: el.dataset.type !== 'bar', axisLabel: { formatter: rupiah, color: '#8090a0', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f5' } } },
-        series: series.map(s => ({ name: s.Name, type: el.dataset.type || 'line', smooth: false, symbol: 'circle', symbolSize: 5, showSymbol: false, lineStyle: { width: 2.5 }, areaStyle: el.dataset.type === 'bar' ? undefined : { opacity: .04 }, data: s.Points.map(p => p.Value) }))
+      chart.setOption({ color: ['#003399', '#8a647a'], animation: false, textStyle: { fontFamily: '"Noto Sans", system-ui, sans-serif' },
+        grid: { left: 12, right: 18, top: 36, bottom: 20, containLabel: true },
+        legend: { top: 6, right: 12, itemWidth: 14, itemHeight: 3, textStyle: { color: '#484848', fontSize: 12 } },
+        tooltip: { trigger: 'axis', valueFormatter: rupiah, backgroundColor: '#111111', borderWidth: 0, padding: [8, 12], textStyle: { color: '#ffffff', fontSize: 12 }, extraCssText: 'border-radius:4px;box-shadow:none' },
+        xAxis: { type: 'category', boundaryGap: el.dataset.type === 'bar', data: series[0].Points.map(p => p.Label), axisTick: { show: false }, axisLabel: { color: '#767676', fontSize: 11 }, axisLine: { lineStyle: { color: '#dfdfdf' } } },
+        yAxis: { type: 'value', scale: el.dataset.type !== 'bar', axisLabel: { formatter: rupiah, color: '#767676', fontSize: 11 }, axisLine: { show: false }, splitLine: { lineStyle: { color: '#eeeeee' } } },
+        series: series.map(s => ({ name: s.Name, type: el.dataset.type || 'line', smooth: false, symbol: 'circle', symbolSize: 4, showSymbol: false, lineStyle: { width: 2 }, data: s.Points.map(p => p.Value) }))
       }, true);
       new ResizeObserver(() => chart.resize()).observe(el);
     });
