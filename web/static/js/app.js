@@ -9,24 +9,35 @@
       if (!window.echarts) { el.textContent = 'Grafik tidak tersedia.'; return; }
       const series = JSON.parse(el.dataset.series || '[]');
       if (!series.length || !series[0].Points?.length) { el.textContent = 'Tidak ada data untuk periode dan cabang yang dipilih.'; return; }
+      const values = series.flatMap(s => s.Points.map(p => p.Value));
+      const low = Math.min(...values), high = Math.max(...values);
+      const span = Math.max((high - low) * 1.4, Math.max(Math.abs(low), Math.abs(high)) * 0.25, 1);
+      const center = (low + high) / 2;
+      let axisMin = center - span / 2, axisMax = center + span / 2;
+      if (low >= 0 && axisMin < 0) { axisMin = 0; axisMax = span; }
+      if (high <= 0 && axisMax > 0) { axisMin = -span; axisMax = 0; }
       const chart = echarts.getInstanceByDom(el) || echarts.init(el);
       chart.setOption({ color: ['#003399', '#8a647a'], animation: false, textStyle: { fontFamily: '"Noto Sans", system-ui, sans-serif' },
         grid: { left: 12, right: 18, top: 36, bottom: 20, containLabel: true },
         legend: { top: 6, right: 12, itemWidth: 14, itemHeight: 3, textStyle: { color: '#484848', fontSize: 12 } },
         tooltip: { trigger: 'axis', valueFormatter: rupiah, backgroundColor: '#111111', borderWidth: 0, padding: [8, 12], textStyle: { color: '#ffffff', fontSize: 12 }, extraCssText: 'border-radius:4px;box-shadow:none' },
         xAxis: { type: 'category', boundaryGap: el.dataset.type === 'bar', data: series[0].Points.map(p => p.Label), axisTick: { show: false }, axisLabel: { color: '#767676', fontSize: 11 }, axisLine: { lineStyle: { color: '#dfdfdf' } } },
-        yAxis: { type: 'value', scale: el.dataset.type !== 'bar', axisLabel: { formatter: rupiah, color: '#767676', fontSize: 11 }, axisLine: { show: false }, splitLine: { lineStyle: { color: '#eeeeee' } } },
+        yAxis: { type: 'value', scale: el.dataset.type !== 'bar', ...(el.dataset.type === 'bar' ? {} : { min: axisMin, max: axisMax }), axisLabel: { formatter: rupiah, color: '#767676', fontSize: 11 }, axisLine: { show: false }, splitLine: { lineStyle: { color: '#eeeeee' } } },
         series: series.map(s => ({ name: s.Name, type: el.dataset.type || 'line', smooth: false, symbol: 'circle', symbolSize: 4, showSymbol: false, lineStyle: { width: 2 }, data: s.Points.map(p => p.Value) }))
       }, true);
       new ResizeObserver(() => chart.resize()).observe(el);
     });
   }
   function syncFilter() {
-    const category = document.querySelector('.global-filter input[name=category]');
+    const filter = document.querySelector('.global-filter');
+    const category = filter?.querySelector('input[name=category]');
     const selected = document.querySelector('.tabs a.selected');
     if (category && selected) category.value = new URL(selected.href).searchParams.get('category') || category.value;
-    const ctx = document.querySelector('.topbar-context strong');
-    if (ctx) { const label = document.querySelector('.page-head')?.dataset.reportingDate; if (label) ctx.textContent = 'Posisi ' + label; }
+    if (filter) document.querySelectorAll('.sidebar .brand, .sidebar nav a').forEach(link => {
+      const url = new URL(link.href);
+      for (const name of ['mode', 'period', 'branch']) url.searchParams.set(name, filter.elements.namedItem(name).value);
+      link.href = url.href;
+    });
   }
   function init() {
     renderCharts(); syncFilter();

@@ -107,14 +107,21 @@ func (a *App) finish(w http.ResponseWriter, r *http.Request, d PageData, dashboa
 		d.Error = "Data tidak dapat dimuat: " + err.Error()
 	} else {
 		d.Dashboard = dashboard
-		d.Charts = charts(dashboard.Series, d.Active)
+		d.Charts = charts(dashboard.Series, d.Active, d.Filter.Mode)
 	}
 	a.render(w, r, d)
 }
-func charts(s []domain.Series, page string) []Chart {
+func charts(s []domain.Series, page, mode string) []Chart {
 	makeChart := func(title string, series []domain.Series) Chart {
 		b, _ := json.Marshal(series)
-		return Chart{Title: title, Series: string(b), Type: "line", Caption: "Riwayat tersedia"}
+		unit := "bulan"
+		switch mode {
+		case "daily":
+			unit = "hari"
+		case "yearly":
+			unit = "tahun"
+		}
+		return Chart{Title: title, Series: string(b), Type: "line", Caption: strconv.Itoa(len(series[0].Points)) + " " + unit + " terakhir"}
 	}
 	switch page {
 	case "dashboard":
@@ -134,7 +141,14 @@ func charts(s []domain.Series, page string) []Chart {
 		}
 	case "kinerja":
 		if len(s) >= 2 {
-			return []Chart{makeChart("Tren Aset", s[:1]), makeChart("Tren Laba", s[1:2])}
+			assets, profit := makeChart("Tren Aset", s[:1]), makeChart("Tren Laba", s[1:2])
+			if n := len(s[0].Points); n > 0 {
+				assets.Caption = "Posisi terakhir " + view.Rupiah(s[0].Points[n-1].Value) + " · " + assets.Caption
+			}
+			if n := len(s[1].Points); n > 0 {
+				profit.Caption = "Periode terakhir " + view.Rupiah(s[1].Points[n-1].Value) + " · " + profit.Caption
+			}
+			return []Chart{assets, profit}
 		}
 	default:
 		if len(s) > 0 {
