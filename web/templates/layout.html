@@ -1,0 +1,22 @@
+{{define "layout"}}<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{if eq .Page "login"}}Masuk{{else}}{{.Dashboard.Title}}{{if eq .Page "nominative"}}Nominatif{{end}}{{end}} · Roro Jongrang</title><link rel="stylesheet" href="/static/css/app.css"></head><body>
+{{if eq .Page "login"}}{{template "content" .}}{{else}}
+<div class="app-shell">
+<aside class="sidebar" id="sidebar"><a class="brand" href="/dashboard"><span class="brand-mark">RJ</span><span><strong>Roro Jongrang</strong><small>Management Dashboard</small></span></a><div class="nav-label">MENU UTAMA</div><nav aria-label="Navigasi utama">
+<a href="{{link "/dashboard" .Filter}}" class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Overview</a>
+<a href="{{link "/tabungan" .Filter}}" class="nav-item {{if eq .Active "tabungan"}}active{{end}}">Tabungan</a>
+<a href="{{link "/deposito" .Filter}}" class="nav-item {{if eq .Active "deposito"}}active{{end}}">Deposito</a>
+<a href="{{link "/kredit" .Filter}}" class="nav-item {{if eq .Active "kredit"}}active{{end}}">Kredit</a>
+<a href="{{link "/kinerja" .Filter}}" class="nav-item {{if eq .Active "kinerja"}}active{{end}}">Kinerja Keuangan</a>
+</nav><div class="sidebar-foot">DATA DEMO · 2024–2026</div></aside>
+<div class="workspace"><header class="topbar"><button class="menu-button" id="menu-toggle" type="button" aria-label="Buka menu" aria-controls="sidebar" aria-expanded="false">☰</button><div class="topbar-context"><span class="eyebrow">DASHBOARD MANAJEMEN</span><strong>Posisi {{date .Filter.Date}}</strong></div>
+<form class="global-filter" method="get" action="{{.Path}}" hx-get="{{.Path}}" hx-target="#main" hx-push-url="true" hx-indicator="#loading">
+{{if .Category}}<input type="hidden" name="category" value="{{.Category}}">{{end}}
+{{if eq .Page "nominative"}}<input type="hidden" name="domain" value="{{.NFDomain}}"><input type="hidden" name="category" value="{{.NFCategory}}"><input type="hidden" name="metric" value="{{.NFMetric}}"><input type="hidden" name="bucket" value="{{.NFBucket}}">{{end}}
+<label>Periode<select name="mode" id="period-mode"><option value="daily" {{if eq .Filter.Mode "daily"}}selected{{end}}>Harian</option><option value="monthly" {{if eq .Filter.Mode "monthly"}}selected{{end}}>Bulanan</option><option value="yearly" {{if eq .Filter.Mode "yearly"}}selected{{end}}>Tahunan</option></select></label>
+<label>Posisi<input id="period-input" name="period" value="{{.Filter.Period}}" {{if eq .Filter.Mode "daily"}}type="date"{{else if eq .Filter.Mode "monthly"}}type="month"{{else}}type="number" min="2024" max="2026"{{end}} required></label>
+<label>Cabang{{if eq .User.Branch "ALL"}}<select name="branch"><option value="ALL" {{if eq .Filter.Branch "ALL"}}selected{{end}}>Konsolidasi</option>{{range $i := seq 0 8}}<option value="{{branch $i}}" {{if eq $.Filter.Branch (branch $i)}}selected{{end}}>{{branch $i}}{{if eq $i 0}} · Kantor Pusat{{end}}</option>{{end}}</select>{{else}}<span class="locked">{{.User.Branch}} 🔒</span><input type="hidden" name="branch" value="{{.User.Branch}}">{{end}}</label>
+<button class="apply" type="submit">Terapkan</button><span id="loading" class="htmx-indicator">Memuat…</span></form>
+<div class="user-area"><span class="avatar">{{if eq .User.Name "admin"}}A{{else}}B{{end}}</span><span class="user-name">{{.User.Name}}</span><form method="post" action="/logout"><button type="submit" class="logout">Keluar</button></form></div></header>
+<main id="main" class="main" hx-indicator="#loading">{{template "content" .}}</main></div></div>
+<script src="/static/js/echarts.min.js" defer></script><script src="/static/js/htmx.min.js" defer></script><script src="/static/js/app.js" defer></script>
+{{end}}</body></html>{{end}}
