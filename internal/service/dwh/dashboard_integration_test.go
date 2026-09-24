@@ -9,8 +9,12 @@ import (
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 )
 
-// Run with DWH_DBSTRING set. All repository queries use read-only transactions.
+// Run explicitly with DWH_INTEGRATION_TEST=1 and DWH_DBSTRING set.
+// All repository queries use read-only transactions.
 func TestLiveReconciliation(t *testing.T) {
+	if os.Getenv("DWH_INTEGRATION_TEST") != "1" {
+		t.Skip("live DWH integration test is opt-in")
+	}
 	dsn := os.Getenv("DWH_DBSTRING")
 	if dsn == "" {
 		t.Skip("DWH_DBSTRING is not set")
@@ -171,6 +175,9 @@ func TestLiveReconciliation(t *testing.T) {
 }
 
 func TestLiveFinancialRatios(t *testing.T) {
+	if os.Getenv("DWH_INTEGRATION_TEST") != "1" {
+		t.Skip("live DWH integration test is opt-in")
+	}
 	dsn := os.Getenv("DWH_DBSTRING")
 	if dsn == "" {
 		t.Skip("DWH_DBSTRING is not set")
@@ -252,7 +259,7 @@ func TestLiveFinancialRatios(t *testing.T) {
 			return v
 		}
 		want := map[string]int64{
-			"Total Aset":         get("1"),
+			"Aset":               get("1"),
 			"Laba Sebelum Pajak": get("323", "558"),
 			"BOPO":               percent(get("5")-get("558"), get("4")),
 			"NIM":                percent((get("401", "402", "403", "410")-get("501", "502", "511"))*12, productive),

@@ -265,8 +265,8 @@ func (s *DashboardService) GetFinancialPerformance(_ context.Context, f domain.F
 	x := s.facts(f)
 	previous := s.facts(domain.Previous(f))
 	n := domain.Group{Title: "Nominal Keuangan", Metrics: []domain.Metric{
-		{Label: "Total Aset", Value: x.assets, Previous: previous.assets, Unit: "rupiah"},
-		{Label: "Laba", Value: x.profit, Previous: previous.profit, Unit: "rupiah"},
+		{Label: "Aset", Value: x.assets, Previous: previous.assets, Unit: "rupiah"},
+		{Label: "Laba Sebelum Pajak", Value: x.profit, Previous: previous.profit, Unit: "rupiah"},
 	}}
 	assets := domain.Series{Name: "Aset"}
 	profit := domain.Series{Name: "Laba"}

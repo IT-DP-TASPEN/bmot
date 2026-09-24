@@ -12,7 +12,9 @@ go mod download
 go run ./cmd/web
 ```
 
-Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. Set `DASHBOARD_DATA_SOURCE=dwh` and provide `DWH_DBSTRING` in the runtime environment to use the external DWH. The DWH connection has its own pool and every application query runs in a read-only transaction. Never point a writable application database or migrations at the DWH. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
+Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. `DASHBOARD_DATA_SOURCE=dwh` reads historical data through `DWH_DBSTRING`. `DASHBOARD_DATA_SOURCE=hybrid` also needs a separate, writable **application** MySQL database in `APP_DBSTRING` and read-only Fincloud report credentials in `FINCLOUD_BASE_URL`, `FINCLOUD_USERNAME`, `FINCLOUD_PASSWORD`, `FINCLOUD_ROLE_ID`, and `FINCLOUD_LOCATION_ID`. The application creates its snapshot tables only in `APP_DBSTRING`. The DWH has its own pool and every dashboard query runs in a read-only transaction. Never point `APP_DBSTRING` at the DWH. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
+
+Hybrid mode reads DWH dates historically and today's latest published local snapshot. Page requests never call Fincloud. The scheduler and “Perbarui Data” action run the same asynchronous refresh; overlapping runs are dropped. Set `REALTIME_REFRESH_ENABLED=false` to disable the scheduler while retaining manual refresh. `REALTIME_REFRESH_INTERVAL`, `REALTIME_STALE_AFTER`, `REALTIME_SNAPSHOT_RETENTION`, and `DWH_WATERMARK_INTERVAL` are configurable. A failed or incomplete refresh leaves the previous published generation intact. If no current-day generation exists, today's view is empty and explicitly shows the latest DWH watermark.
 
 | Demo user | Password | Access |
 | --- | --- | --- |
@@ -41,7 +43,7 @@ Filters are bookmarkable query parameters: `mode=daily|monthly|yearly`, `period=
 
 Demo history runs from 1 September 2024 through 24 September 2026. Daily mode compares with the previous calendar date. Monthly and yearly balance figures are as-of snapshots; booking and profit are period flows. The current open month/year compares flows with the matching cutoff in the previous month/year. Dates outside the demo range show an empty state. Rupiah values use `int64`; ratios use hundredths of a percentage point for display.
 
-DWH table mappings, branch scope, formulas, sampled data shape, and the owner's blocked ABA assumption are recorded in [the DWH audit](docs/DWH_AUDIT.md). The real source uses the latest common DWH snapshot as the default date. Monthly and yearly positions select one reporting-date snapshot; Booking uses the selected period. Cash Ratio currently assumes blocked ABA is zero, as directed by the dashboard owner.
+DWH table mappings, branch scope, formulas, sampled data shape, and the owner's blocked ABA assumption are recorded in [the DWH audit](docs/DWH_AUDIT.md). The historical-to-realtime mapping and supplied CSV headers are recorded in [the hybrid audit](docs/HYBRID_AUDIT.md). The real source uses the latest common DWH snapshot as the default date. Monthly and yearly positions select one reporting-date snapshot; Booking uses the selected period. Cash Ratio currently assumes blocked ABA is zero, as directed by the dashboard owner.
 
 The mock's financial facts remain illustrative; the DWH service uses the audited Fincloud mappings. Direction changes remain neutral.
 
@@ -53,4 +55,6 @@ go vet ./...
 go test ./...
 ```
 
-The tests cover period cutoffs, branch consolidation, KPI comparisons, nominated totals and maturity buckets, search/pagination, formatting, and authenticated route behavior.
+The tests cover period cutoffs, branch consolidation, KPI comparisons, nominated totals and maturity buckets, search/pagination, formatting, authenticated routes, realtime report parsing, source routing, and failed refresh fallback. Live DWH reconciliation is opt-in only: set both `DWH_INTEGRATION_TEST=1` and `DWH_DBSTRING`; it uses read-only transactions and never writes to the DWH.
+
+Snapshot integration checks are also opt-in: set `APP_INTEGRATION_TEST=1` and `APP_DBSTRING` to a dedicated local MySQL database named `roro_test`, then run `go test -p 1 -run TestLocalSnapshot ./internal/service/dwh ./internal/service/realtime`. These checks write only to `roro_test`; ordinary tests need no database or Fincloud access.

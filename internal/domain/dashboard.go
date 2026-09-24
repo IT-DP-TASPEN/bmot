@@ -41,6 +41,12 @@ type Dashboard struct {
 	Empty      bool
 }
 
+type Provenance struct {
+	Kind                     string // dwh or realtime
+	AsOf, Watermark, Updated time.Time
+	Stale, Unavailable       bool
+}
+
 type Group struct {
 	Title   string
 	Metrics []Metric

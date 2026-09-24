@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -20,7 +21,9 @@ type App struct {
 	Sessions   *middleware.Sessions
 	View       *view.Renderer
 	LatestDate time.Time
+	Latest     func() time.Time
 	Demo       bool
+	Refresh    func() bool
 }
 
 type Chart struct{ Title, Series, Type, Caption string }
@@ -33,6 +36,9 @@ type PageData struct {
 	Charts                                                                                     []Chart
 	Demo                                                                                       bool
 	MaxYear                                                                                    int
+	Provenance                                                                                 domain.Provenance
+	RefreshAllowed                                                                             bool
+	RefreshMessage                                                                             string
 }
 
 func (a *App) Routes() http.Handler {
@@ -48,6 +54,7 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("GET /kredit", a.Sessions.Require(http.HandlerFunc(a.loans)))
 	mux.Handle("GET /kinerja", a.Sessions.Require(http.HandlerFunc(a.financial)))
 	mux.Handle("GET /nominatif", a.Sessions.Require(http.HandlerFunc(a.nominative)))
+	mux.Handle("POST /refresh", a.Sessions.Require(http.HandlerFunc(a.refresh)))
 	return mux
 }
 
@@ -100,6 +107,9 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageD
 		branch = u.Branch
 	}
 	latest := a.LatestDate
+	if a.Latest != nil {
+		latest = a.Latest()
+	}
 	if latest.IsZero() {
 		latest = domain.LastMockDate
 	}
@@ -108,7 +118,56 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageD
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return PageData{}, false
 	}
-	return PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year()}, true
+	d := PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year(), RefreshAllowed: a.Refresh != nil && r.URL.Path != "/nominatif"}
+	if source, ok := a.Service.(interface {
+		Provenance(context.Context, domain.Filter) (domain.Provenance, error)
+	}); ok {
+		p, e := source.Provenance(r.Context(), f)
+		if e == nil {
+			d.Provenance = p
+		}
+	}
+	switch r.URL.Query().Get("refresh") {
+	case "started":
+		d.RefreshMessage = "Pembaruan data dimulai."
+	case "running":
+		d.RefreshMessage = "Pembaruan data sedang berjalan."
+	}
+	return d, true
+}
+
+func (a *App) refresh(w http.ResponseWriter, r *http.Request) {
+	if a.Refresh == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Permintaan tidak valid", 400)
+		return
+	}
+	path := r.FormValue("return_to")
+	switch path {
+	case "/dashboard", "/tabungan", "/deposito", "/kredit", "/kinerja", "/nominatif":
+	default:
+		path = "/dashboard"
+	}
+	latest := a.LatestDate
+	if a.Latest != nil {
+		latest = a.Latest()
+	}
+	if latest.IsZero() {
+		latest = domain.LastMockDate
+	}
+	f, err := domain.ParseFilterAt(r.FormValue("mode"), r.FormValue("period"), r.FormValue("branch"), latest)
+	if err != nil {
+		http.Error(w, "Konteks pelaporan tidak valid", 400)
+		return
+	}
+	status := "running"
+	if a.Refresh() {
+		status = "started"
+	}
+	http.Redirect(w, r, Link(path, f, map[string]string{"refresh": status, "category": r.FormValue("category")}), http.StatusSeeOther)
 }
 
 func (a *App) finish(w http.ResponseWriter, r *http.Request, d PageData, dashboard domain.Dashboard, err error) {

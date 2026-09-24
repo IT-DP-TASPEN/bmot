@@ -33,7 +33,7 @@ func (s *DashboardService) GetNominative(ctx context.Context, f domain.Nominativ
 		res.Pages = 1
 		return res, nil
 	}
-	err := s.repo.read(ctx, func(q reader) (err error) { res, err = q.Nominative(ctx, f, res); return err })
+	err := s.sourceFor(f.Date).read(ctx, func(q reader) (err error) { res, err = q.Nominative(ctx, f, res); return err })
 	return res, err
 }
 
@@ -41,11 +41,11 @@ func (q reader) Nominative(ctx context.Context, f domain.NominativeFilter, res d
 	var table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due string
 	switch f.Domain {
 	case "tabungan":
-		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = savingsTable, "branch", "customer_name", "account_no", "cif_no", "product_id", "''", money("credit_balance"), "NULL"
+		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = q.tables.savings, "branch", "customer_name", "account_no", "cif_no", "product_id", "''", money("credit_balance"), "NULL"
 	case "deposito":
-		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = depositTable, "branch_code", "customer_name", "account_no", "cif_no", "product_id", "''", money("nominal"), "DATE(maturity_date)"
+		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = q.tables.deposits, "branch_code", "customer_name", "account_no", "cif_no", "product_id", "''", money("nominal"), "DATE(maturity_date)"
 	default:
-		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = loanTable, "cabang_rekening", "nama_nasabah", "no_rekening", "no_cif", "produk", "kolektibilitas_bi", money("sisa_pokok_pinjaman"), "NULL"
+		table, branchCol, nameCol, accountCol, cifCol, productCol, collectCol, amount, due = q.tables.loans, "cabang_rekening", "nama_nasabah", "no_rekening", "no_cif", "produk", "kolektibilitas_bi", money("sisa_pokok_pinjaman"), "NULL"
 	}
 	where := "as_of_date = ?"
 	args := []any{f.Date}

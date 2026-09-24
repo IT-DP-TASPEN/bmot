@@ -94,7 +94,8 @@ func FuncMap() template.FuncMap {
 				return "0"
 			}
 		}, "percent": Percent,
-		"date": DateID,
+		"date":     DateID,
+		"clockWIB": func(t time.Time) string { return t.In(time.FixedZone("WIB", 7*3600)).Format("15:04") },
 		"display": func(unit string, value int64) string {
 			switch unit {
 			case "percent":

@@ -6,14 +6,84 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 )
 
-type DashboardService struct{ repo *Repository }
+type DashboardService struct {
+	repo, realtime *Repository
+	watermark      atomic.Int64
+	now            func() time.Time
+	snapshot       func(context.Context) (time.Time, time.Time, bool, error)
+	staleAfter     time.Duration
+}
 
-func NewDashboardService(repo *Repository) *DashboardService { return &DashboardService{repo: repo} }
+func NewDashboardService(repo *Repository, watermark ...time.Time) *DashboardService {
+	s := &DashboardService{repo: repo}
+	if len(watermark) > 0 {
+		s.SetWatermark(watermark[0])
+	}
+	return s
+}
+
+func NewHybridDashboardService(historical, realtime *Repository, watermark time.Time, snapshot func(context.Context) (time.Time, time.Time, bool, error), staleAfter time.Duration) *DashboardService {
+	s := &DashboardService{repo: historical, realtime: realtime, now: time.Now, snapshot: snapshot, staleAfter: staleAfter}
+	s.SetWatermark(watermark)
+	return s
+}
+
+func (s *DashboardService) SetWatermark(day time.Time) { s.watermark.Store(day.Unix()) }
+func (s *DashboardService) watermarkDate() time.Time {
+	if v := s.watermark.Load(); v != 0 {
+		return time.Unix(v, 0).UTC()
+	}
+	return time.Time{}
+}
+
+func (s *DashboardService) Provenance(ctx context.Context, f domain.Filter) (domain.Provenance, error) {
+	p := domain.Provenance{Kind: "dwh", AsOf: f.Date, Watermark: s.watermarkDate()}
+	if s.sourceFor(f.Date) != s.realtime || s.realtime == nil {
+		return p, nil
+	}
+	p.Kind = "realtime"
+	if s.snapshot == nil {
+		p.Unavailable = true
+		return p, nil
+	}
+	date, updated, ok, err := s.snapshot(ctx)
+	if err != nil {
+		return p, err
+	}
+	if !ok || !date.Equal(f.Date) {
+		p.Unavailable = true
+		return p, nil
+	}
+	p.Updated = updated
+	clock := s.now
+	if clock == nil {
+		clock = time.Now
+	}
+	p.Stale = clock().Sub(updated) > s.staleAfter
+	return p, nil
+}
+
+func (s *DashboardService) sourceFor(day time.Time) *Repository {
+	if s.realtime != nil && day.Equal(s.today()) && s.watermarkDate().Before(day) {
+		return s.realtime
+	}
+	return s.repo
+}
+
+func (s *DashboardService) today() time.Time {
+	clock := s.now
+	if clock == nil {
+		clock = time.Now
+	}
+	now := clock().In(time.FixedZone("WIB", 7*3600))
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
 
 func key(t time.Time) string { return t.Format("2006-01-02") }
 
@@ -84,42 +154,83 @@ type snapshot struct {
 }
 
 func (s *DashboardService) load(ctx context.Context, f domain.Filter, kinds string) (snapshot, error) {
-	var x snapshot
 	days := reportDates(f)
-	err := s.repo.read(ctx, func(q reader) (err error) {
+	if strings.Contains(kinds, "b") {
+		for _, target := range []domain.Filter{f, domain.Previous(f)} {
+			for month := 1; month <= int(target.Date.Month()); month++ {
+				days = append(days, nimDate(target.Date, month))
+			}
+		}
+	}
+	seen := map[string]bool{}
+	byRepo := map[*Repository][]time.Time{}
+	for _, day := range days {
+		if !seen[key(day)] {
+			byRepo[s.sourceFor(day)] = append(byRepo[s.sourceFor(day)], day)
+			seen[key(day)] = true
+		}
+	}
+	var x snapshot
+	for repo, sourceDays := range byRepo {
+		part, err := loadFrom(ctx, repo, f.Branch, f.Mode, sourceDays, kinds)
+		if err != nil {
+			return snapshot{}, err
+		}
+		x.merge(part)
+	}
+	return x, nil
+}
+
+func (x *snapshot) merge(part snapshot) {
+	if x.savings == nil {
+		x.savings = map[string]fundingPosition{}
+	}
+	if x.deposits == nil {
+		x.deposits = map[string]fundingPosition{}
+	}
+	if x.loans == nil {
+		x.loans = map[string]loanPosition{}
+	}
+	if x.balance == nil {
+		x.balance = map[string]balancePosition{}
+	}
+	for k, v := range part.savings {
+		x.savings[k] = v
+	}
+	for k, v := range part.deposits {
+		x.deposits[k] = v
+	}
+	for k, v := range part.loans {
+		x.loans[k] = v
+	}
+	for k, v := range part.balance {
+		x.balance[k] = v
+	}
+}
+
+func loadFrom(ctx context.Context, repo *Repository, branch, mode string, days []time.Time, kinds string) (snapshot, error) {
+	var x snapshot
+	err := repo.read(ctx, func(q reader) (err error) {
 		if strings.Contains(kinds, "s") {
-			x.savings, err = q.SavingsPosition(ctx, days, f.Branch)
+			x.savings, err = q.SavingsPosition(ctx, days, branch)
 			if err != nil {
 				return err
 			}
 		}
 		if strings.Contains(kinds, "d") {
-			x.deposits, err = q.DepositPosition(ctx, days, f.Branch)
+			x.deposits, err = q.DepositPosition(ctx, days, branch)
 			if err != nil {
 				return err
 			}
 		}
 		if strings.Contains(kinds, "l") {
-			x.loans, err = q.LoanPosition(ctx, days, f.Branch, f.Mode)
+			x.loans, err = q.LoanPosition(ctx, days, branch, mode)
 			if err != nil {
 				return err
 			}
 		}
 		if strings.Contains(kinds, "b") {
-			for _, target := range []domain.Filter{f, domain.Previous(f)} {
-				for month := 1; month <= int(target.Date.Month()); month++ {
-					days = append(days, nimDate(target.Date, month))
-				}
-			}
-			unique := map[string]bool{}
-			var balanceDays []time.Time
-			for _, day := range days {
-				if !unique[key(day)] {
-					balanceDays = append(balanceDays, day)
-					unique[key(day)] = true
-				}
-			}
-			x.balance, err = q.BalanceSheetPosition(ctx, balanceDays, f.Branch)
+			x.balance, err = q.BalanceSheetPosition(ctx, days, branch)
 		}
 		return err
 	})
@@ -201,7 +312,7 @@ func (x snapshot) financial(f domain.Filter) map[string]int64 {
 		productive += v["110"] + v["121"]
 	}
 	result := map[string]int64{
-		"Total Aset": get("1"), "Laba Sebelum Pajak": get("323", "558"),
+		"Aset": get("1"), "Laba Sebelum Pajak": get("323", "558"),
 		"BOPO": percent(get("5")-get("558"), get("4")),
 		"LDR":  percent(loan, deposit), "Cash Ratio": percent(liquid, liabilities),
 	}
@@ -343,7 +454,7 @@ func (s *DashboardService) GetFinancialPerformance(ctx context.Context, f domain
 	}
 	current, previous := x.financial(f), x.financial(domain.Previous(f))
 	n := domain.Group{Title: "Nominal Keuangan", Metrics: []domain.Metric{
-		metric("Total Aset", "rupiah", "", "", "", current["Total Aset"], previous["Total Aset"]),
+		metric("Aset", "rupiah", "", "", "", current["Aset"], previous["Aset"]),
 		metric("Laba Sebelum Pajak", "rupiah", "", "", "", current["Laba Sebelum Pajak"], previous["Laba Sebelum Pajak"]),
 	}}
 	d.Groups = []domain.Group{r, n}
@@ -357,7 +468,7 @@ func (s *DashboardService) GetFinancialPerformance(ctx context.Context, f domain
 func (s *DashboardService) GetDepositMaturities(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
 	d := domain.Dashboard{Title: "Deposito", Subtitle: "Jatuh Tempo"}
 	var rows []maturityRow
-	err := s.repo.read(ctx, func(q reader) (err error) { rows, err = q.Maturities(ctx, f.Date, f.Branch); return err })
+	err := s.sourceFor(f.Date).read(ctx, func(q reader) (err error) { rows, err = q.Maturities(ctx, f.Date, f.Branch); return err })
 	if err != nil {
 		return domain.Dashboard{}, err
 	}

@@ -18,8 +18,30 @@ const (
 	balanceTable = "fincloud_balance_sheet_reports"
 )
 
-type Repository struct{ db *sql.DB }
-type reader struct{ tx *sql.Tx }
+type tables struct{ savings, deposits, loans, balance string }
+
+var historicalTables = tables{savingsTable, depositTable, loanTable, balanceTable}
+
+var realtimeTables = tables{
+	"(SELECT as_of_date, branch, product_id, account_no, customer_name, cif_no, credit_balance FROM dashboard_rt_savings WHERE snapshot_id=(SELECT id FROM dashboard_snapshot_runs WHERE status='published' ORDER BY id DESC LIMIT 1)) AS rt_savings",
+	"(SELECT as_of_date, branch_code, product_id, account_no, customer_name, cif_no, nominal, maturity_date FROM dashboard_rt_time_deposits WHERE snapshot_id=(SELECT id FROM dashboard_snapshot_runs WHERE status='published' ORDER BY id DESC LIMIT 1)) AS rt_deposits",
+	"(SELECT as_of_date, cabang_rekening, produk, no_rekening, nama_nasabah, no_cif, periode_mulai, pokok_pinjaman, sisa_pokok_pinjaman, kolektibilitas_bi FROM dashboard_rt_loans WHERE snapshot_id=(SELECT id FROM dashboard_snapshot_runs WHERE status='published' ORDER BY id DESC LIMIT 1)) AS rt_loans",
+	"(SELECT as_of_date, source_location_id, co_a_no, chart_of_account, last_balance FROM dashboard_rt_balance_sheet WHERE snapshot_id=(SELECT id FROM dashboard_snapshot_runs WHERE status='published' ORDER BY id DESC LIMIT 1)) AS rt_balance",
+}
+
+type Repository struct {
+	db     *sql.DB
+	tables tables
+}
+type reader struct {
+	tx     *sql.Tx
+	tables tables
+}
+
+// NewSnapshotRepository reads only the latest published generation in the local application DB.
+func NewSnapshotRepository(db *sql.DB) *Repository {
+	return &Repository{db: db, tables: realtimeTables}
+}
 
 type fundingPosition struct{ Total, ABP, NOA, ABPNOA int64 }
 type loanPosition struct{ Outstanding, Bad, Booking int64 }
@@ -53,20 +75,25 @@ func Open(ctx context.Context, dsn string) (*Repository, time.Time, error) {
 	db.SetMaxOpenConns(5)
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	r := &Repository{db: db}
+	r := &Repository{db: db, tables: historicalTables}
+	latest, err := r.LatestCommon(ctx)
+	if err != nil {
+		db.Close()
+		return nil, time.Time{}, fmt.Errorf("reading DWH reporting date: %w", err)
+	}
+	return r, latest, nil
+}
+
+func (r *Repository) LatestCommon(ctx context.Context) (time.Time, error) {
 	var latest time.Time
-	err = r.read(ctx, func(q reader) error {
+	err := r.read(ctx, func(q reader) error {
 		return q.tx.QueryRowContext(ctx, `SELECT LEAST(
 			(SELECT MAX(as_of_date) FROM fincloud_eod_savings_balance_details_report),
 			(SELECT MAX(as_of_date) FROM fincloud_eod_time_deposit_account_balance_details),
 			(SELECT MAX(as_of_date) FROM fincloud_eod_detail_outstanding_rekening_pinjaman),
 			(SELECT MAX(as_of_date) FROM fincloud_balance_sheet_reports))`).Scan(&latest)
 	})
-	if err != nil {
-		db.Close()
-		return nil, time.Time{}, fmt.Errorf("reading DWH reporting date: %w", err)
-	}
-	return r, latest, nil
+	return latest, err
 }
 
 func (r *Repository) Close() error { return r.db.Close() }
@@ -77,7 +104,7 @@ func (r *Repository) read(ctx context.Context, fn func(reader) error) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err := fn(reader{tx}); err != nil {
+	if err := fn(reader{tx: tx, tables: r.tables}); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -138,11 +165,11 @@ func (q reader) funding(ctx context.Context, table, balance, branchCol, abp stri
 }
 
 func (q reader) SavingsPosition(ctx context.Context, days []time.Time, branch string) (map[string]fundingPosition, error) {
-	return q.funding(ctx, savingsTable, "credit_balance", "branch", "'119','199'", true, days, branch)
+	return q.funding(ctx, q.tables.savings, "credit_balance", "branch", "'119','199'", true, days, branch)
 }
 
 func (q reader) DepositPosition(ctx context.Context, days []time.Time, branch string) (map[string]fundingPosition, error) {
-	return q.funding(ctx, depositTable, "nominal", "branch_code", "'203','204'", false, days, branch)
+	return q.funding(ctx, q.tables.deposits, "nominal", "branch_code", "'203','204'", false, days, branch)
 }
 
 func periodStartSQL(mode string) string {
@@ -165,7 +192,7 @@ func (q reader) LoanPosition(ctx context.Context, days []time.Time, branch, mode
 		CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED),
 		CAST(ROUND(COALESCE(SUM(CASE WHEN kolektibilitas_bi IN ('3','4','5') THEN %s ELSE 0 END),0),0) AS SIGNED),
 		CAST(ROUND(COALESCE(SUM(CASE WHEN STR_TO_DATE(periode_mulai,'%%d/%%m/%%Y') BETWEEN %s AND as_of_date THEN %s ELSE 0 END),0),0) AS SIGNED)
-		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, outstanding, outstanding, periodStartSQL(mode), original, loanTable, mark, where)
+		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, outstanding, outstanding, periodStartSQL(mode), original, q.tables.loans, mark, where)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -192,7 +219,7 @@ func (q reader) BalanceSheetPosition(ctx context.Context, days []time.Time, bran
 	query := fmt.Sprintf(`SELECT as_of_date, co_a_no,
 		CAST(ROUND(COALESCE(SUM(%s * CASE WHEN LEFT(co_a_no,1) IN ('2','3','4','6') THEN -1 ELSE 1 END),0),0) AS SIGNED)
 		FROM %s WHERE as_of_date IN (%s) AND co_a_no IN (%s)%s
-		GROUP BY as_of_date, co_a_no`, money("last_balance"), balanceTable, mark, financialCOAs, where)
+		GROUP BY as_of_date, co_a_no`, money("last_balance"), q.tables.balance, mark, financialCOAs, where)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -221,7 +248,7 @@ func (q reader) Maturities(ctx context.Context, day time.Time, branch string) ([
 	query := fmt.Sprintf(`SELECT customer_name,account_no,LEFT(branch_code,3),DATE(maturity_date),
 		CAST(ROUND(COALESCE(%s,0)*100,0) AS SIGNED)
 		FROM %s WHERE as_of_date=?%s AND maturity_date >= ?
-		ORDER BY maturity_date,account_no`, money("nominal"), depositTable, where)
+		ORDER BY maturity_date,account_no`, money("nominal"), q.tables.deposits, where)
 	args = append(args, day)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
