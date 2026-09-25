@@ -79,6 +79,9 @@ input,select { outline:none }
 .primary-grid .metric-value { font-size:var(--font-financial) }
 .metric-foot { color:var(--color-muted); font-size:var(--font-small) }
 .change { margin-right:var(--space-1); color:var(--color-text-secondary); font-weight:var(--weight-label); font-variant-numeric:tabular-nums }
+.change-positive { color:var(--color-success) }
+.change-negative { color:var(--color-error) }
+.change-neutral { color:var(--color-text-secondary) }
 .metric-arrow { position:absolute; top:var(--space-3); right:var(--space-4); color:var(--color-primary); font-size:var(--font-body) }
 .loan-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-5) }
 .loan-grid,.maturity-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)) }

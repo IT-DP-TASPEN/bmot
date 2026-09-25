@@ -54,7 +54,7 @@ func (s *DashboardService) metric(f domain.Filter, label, kind, category, key, u
 	if category == "" {
 		category = "all"
 	}
-	return domain.Metric{Label: label, Value: s.sum(f, kind, queryCategory, key), Previous: s.sum(domain.Previous(f), kind, queryCategory, key), Unit: unit, Domain: kind, Category: category, Key: key}
+	return domain.Metric{Label: label, Value: s.sum(f, kind, queryCategory, key), Previous: s.sum(domain.Previous(f), kind, queryCategory, key), HasPrevious: available(domain.Previous(f)), Unit: unit, Domain: kind, Category: category, Key: key}
 }
 
 func shift(f domain.Filter, n int) domain.Filter {
@@ -119,7 +119,7 @@ func (s *DashboardService) GetSavings(_ context.Context, f domain.Filter, catego
 	}
 	bal := s.metric(f, "Saldo Tabungan", "tabungan", category, "balance", "rupiah")
 	noa := s.metric(f, "Jumlah Rekening", "tabungan", category, "noa", "count")
-	avg := domain.Metric{Label: "Rata-rata Saldo", Unit: "rupiah"}
+	avg := domain.Metric{Label: "Rata-rata Saldo", Unit: "rupiah", HasPrevious: bal.HasPrevious && noa.HasPrevious}
 	if noa.Value > 0 {
 		avg.Value = bal.Value / noa.Value
 		avg.Previous = bal.Previous / noa.Previous
@@ -259,7 +259,7 @@ func (s *DashboardService) ratioValue(f domain.Filter, key string) int64 {
 }
 
 func (s *DashboardService) ratio(f domain.Filter, name string) domain.Metric {
-	return domain.Metric{Label: name, Value: s.ratioValue(f, name), Previous: s.ratioValue(domain.Previous(f), name), Unit: "percent"}
+	return domain.Metric{Label: name, Value: s.ratioValue(f, name), Previous: s.ratioValue(domain.Previous(f), name), HasPrevious: available(domain.Previous(f)), Unit: "percent"}
 }
 
 func (s *DashboardService) GetFinancialPerformance(_ context.Context, f domain.Filter) (domain.Dashboard, error) {
@@ -273,8 +273,8 @@ func (s *DashboardService) GetFinancialPerformance(_ context.Context, f domain.F
 	x := s.facts(f)
 	previous := s.facts(domain.Previous(f))
 	n := domain.Group{Title: "Nominal Keuangan", Metrics: []domain.Metric{
-		{Label: "Aset", Value: x.assets, Previous: previous.assets, Unit: "rupiah"},
-		{Label: "Laba Sebelum Pajak", Value: x.profit, Previous: previous.profit, Unit: "rupiah"},
+		{Label: "Aset", Value: x.assets, Previous: previous.assets, HasPrevious: available(domain.Previous(f)), Unit: "rupiah"},
+		{Label: "Laba Sebelum Pajak", Value: x.profit, Previous: previous.profit, HasPrevious: available(domain.Previous(f)), Unit: "rupiah"},
 	}}
 	assets := domain.Series{Name: "Aset"}
 	profit := domain.Series{Name: "Laba"}

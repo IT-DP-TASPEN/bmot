@@ -303,13 +303,14 @@ func funding(p fundingPosition, category, metric string) int64 {
 	}
 }
 
-func metric(label, unit, domainName, category, metricKey string, value, previous int64) domain.Metric {
-	return domain.Metric{Label: label, Unit: unit, Domain: domainName, Category: category, Key: metricKey, Value: value, Previous: previous}
+func metric(label, unit, domainName, category, metricKey string, value, previous int64, hasPrevious bool) domain.Metric {
+	return domain.Metric{Label: label, Unit: unit, Domain: domainName, Category: category, Key: metricKey, Value: value, Previous: previous, HasPrevious: hasPrevious}
 }
 
 func (x snapshot) fundingMetric(f domain.Filter, table map[string]fundingPosition, kind, category, field, label, unit string) domain.Metric {
+	previous, hasPrevious := table[key(domain.Previous(f).Date)]
 	return metric(label, unit, kind, category, field,
-		funding(table[key(f.Date)], category, field), funding(table[key(domain.Previous(f).Date)], category, field))
+		funding(table[key(f.Date)], category, field), funding(previous, category, field), hasPrevious)
 }
 
 func trend(f domain.Filter, name string, value func(domain.Filter) int64) domain.Series {
@@ -374,7 +375,8 @@ func (x snapshot) financial(f domain.Filter) map[string]int64 {
 }
 
 func (x snapshot) ratio(f domain.Filter, name string) domain.Metric {
-	return metric(name, "percent", "", "", "", x.financial(f)[name], x.financial(domain.Previous(f))[name])
+	previous, hasPrevious := x.financial(domain.Previous(f))[name]
+	return metric(name, "percent", "", "", "", x.financial(f)[name], previous, hasPrevious)
 }
 
 func (s *DashboardService) GetOverview(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
@@ -388,10 +390,11 @@ func (s *DashboardService) GetOverview(ctx context.Context, f domain.Filter) (do
 		return d, nil
 	}
 	loan := func(p domain.Filter) int64 { return x.loans[key(p.Date)].Outstanding }
+	_, loanHasPrevious := x.loans[key(domain.Previous(f).Date)]
 	d.Metrics = []domain.Metric{
 		x.fundingMetric(f, x.savings, "tabungan", "all", "balance", "Total Tabungan", "rupiah"),
 		x.fundingMetric(f, x.deposits, "deposito", "all", "balance", "Total Deposito", "rupiah"),
-		metric("Outstanding Kredit", "rupiah", "kredit", "all", "bade", loan(f), loan(domain.Previous(f))),
+		metric("Outstanding Kredit", "rupiah", "kredit", "all", "bade", loan(f), loan(domain.Previous(f)), loanHasPrevious),
 	}
 	for _, name := range []string{"LDR", "NPL", "Cash Ratio", "NIM"} {
 		if _, ok := x.financial(f)[name]; ok {
@@ -421,7 +424,7 @@ func (s *DashboardService) GetSavings(ctx context.Context, f domain.Filter, cate
 	}
 	bal := x.fundingMetric(f, x.savings, "tabungan", category, "balance", "Saldo Tabungan", "rupiah")
 	noa := x.fundingMetric(f, x.savings, "tabungan", category, "noa", "Jumlah Rekening", "count")
-	avg := metric("Rata-rata Saldo", "rupiah", "", "", "", 0, 0)
+	avg := metric("Rata-rata Saldo", "rupiah", "", "", "", 0, 0, bal.HasPrevious && noa.HasPrevious)
 	if noa.Value != 0 {
 		avg.Value = bal.Value / noa.Value
 	}
@@ -486,9 +489,10 @@ func (s *DashboardService) GetLoans(ctx context.Context, f domain.Filter) (domai
 	}
 	loan := func(p domain.Filter) loanPosition { return x.loans[key(p.Date)] }
 	current, previous := loan(f), loan(domain.Previous(f))
+	_, loanHasPrevious := x.loans[key(domain.Previous(f).Date)]
 	d.Groups = append(d.Groups, domain.Group{Title: "ORGANIK", Metrics: []domain.Metric{
-		metric("Booking", "rupiah", "kredit", "organik", "booking", current.Booking, previous.Booking),
-		metric("BADE", "rupiah", "kredit", "organik", "bade", current.Outstanding, previous.Outstanding),
+		metric("Booking", "rupiah", "kredit", "organik", "booking", current.Booking, previous.Booking, loanHasPrevious),
+		metric("BADE", "rupiah", "kredit", "organik", "bade", current.Outstanding, previous.Outstanding, loanHasPrevious),
 	}})
 	d.Series = append(d.Series,
 		trend(f, "ORGANIK Booking", func(p domain.Filter) int64 { return loan(p).Booking }),
@@ -496,8 +500,8 @@ func (s *DashboardService) GetLoans(ctx context.Context, f domain.Filter) (domai
 	channel := func(p domain.Filter) newsinergi.Position { return channeling[key(p.Date)] }
 	cc, cp := channel(f), channel(domain.Previous(f))
 	d.Groups = append(d.Groups, domain.Group{Title: "CHANNELING", Metrics: []domain.Metric{
-		metric("Booking", "rupiah", "kredit", "channeling", "booking", cc.Booking, cp.Booking),
-		metric("Plafond", "rupiah", "kredit", "channeling", "plafond", cc.Plafond, cp.Plafond),
+		metric("Booking", "rupiah", "kredit", "channeling", "booking", cc.Booking, cp.Booking, cp.Exists),
+		metric("Plafond", "rupiah", "kredit", "channeling", "plafond", cc.Plafond, cp.Plafond, cp.Exists),
 	}})
 	d.Series = append(d.Series,
 		trend(f, "CHANNELING Booking", func(p domain.Filter) int64 { return channel(p).Booking }),
@@ -522,9 +526,11 @@ func (s *DashboardService) GetFinancialPerformance(ctx context.Context, f domain
 		}
 	}
 	current, previous := x.financial(f), x.financial(domain.Previous(f))
+	_, assetHasPrevious := previous["Aset"]
+	_, profitHasPrevious := previous["Laba Sebelum Pajak"]
 	n := domain.Group{Title: "Nominal Keuangan", Metrics: []domain.Metric{
-		metric("Aset", "rupiah", "", "", "", current["Aset"], previous["Aset"]),
-		metric("Laba Sebelum Pajak", "rupiah", "", "", "", current["Laba Sebelum Pajak"], previous["Laba Sebelum Pajak"]),
+		metric("Aset", "rupiah", "", "", "", current["Aset"], previous["Aset"], assetHasPrevious),
+		metric("Laba Sebelum Pajak", "rupiah", "", "", "", current["Laba Sebelum Pajak"], previous["Laba Sebelum Pajak"], profitHasPrevious),
 	}}
 	d.Groups = []domain.Group{r, n}
 	d.Series = []domain.Series{

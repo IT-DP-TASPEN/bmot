@@ -61,3 +61,27 @@ func TestComponentAggregationAndTrendDates(t *testing.T) {
 		t.Fatal("report dates should deduplicate trend and previous dates")
 	}
 }
+
+func TestPreviousMetricAvailabilityUsesSnapshotPresence(t *testing.T) {
+	day := time.Date(2026, 1, 24, 0, 0, 0, 0, time.UTC)
+	f := domain.Filter{Mode: "daily", Date: day}
+	prior := key(domain.Previous(f).Date)
+	x := snapshot{
+		savings:         map[string]fundingPosition{prior: {}},
+		cachedFinancial: map[string]map[string]int64{prior: {"NPL": 0}},
+	}
+	if m := x.fundingMetric(f, x.savings, "tabungan", "all", "balance", "Tabungan", "rupiah"); !m.HasPrevious || m.Previous != 0 {
+		t.Fatalf("zero funding snapshot should be available: %+v", m)
+	}
+	if m := x.ratio(f, "NPL"); !m.HasPrevious || m.Previous != 0 {
+		t.Fatalf("zero ratio snapshot should be available: %+v", m)
+	}
+	delete(x.savings, prior)
+	delete(x.cachedFinancial, prior)
+	if m := x.fundingMetric(f, x.savings, "tabungan", "all", "balance", "Tabungan", "rupiah"); m.HasPrevious {
+		t.Fatalf("missing funding snapshot should be unavailable: %+v", m)
+	}
+	if m := x.ratio(f, "NPL"); m.HasPrevious {
+		t.Fatalf("missing ratio snapshot should be unavailable: %+v", m)
+	}
+}

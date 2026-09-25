@@ -20,14 +20,15 @@ type Series struct {
 }
 
 type Metric struct {
-	Label    string
-	Value    int64
-	Previous int64
-	Unit     string // rupiah, percent, or count; percent values are hundredths of a point
-	Domain   string
-	Category string
-	Key      string
-	Bucket   string
+	Label       string
+	Value       int64
+	Previous    int64
+	HasPrevious bool
+	Unit        string // rupiah, percent, or count; percent values are hundredths of a point
+	Domain      string
+	Category    string
+	Key         string
+	Bucket      string
 }
 
 type Dashboard struct {
