@@ -19,6 +19,7 @@ import (
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/mock"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/newsinergi"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/realtime"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/users"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/view"
 )
 
@@ -43,10 +44,21 @@ func loadEnv(path string) {
 
 func main() {
 	loadEnv(".env")
-	if len(os.Args) > 1 && os.Args[1] == "materialize" {
-		materializeCommand(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "materialize":
+			materializeCommand(os.Args[2:])
+			return
+		case "seed-users", "bootstrap-admin":
+			userCommand(os.Args[1], os.Args[2:])
+			return
+		}
 	}
+	accountStore, err := users.Open(context.Background(), os.Getenv("APP_DBSTRING"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer accountStore.DB.Close()
 	source := os.Getenv("DASHBOARD_DATA_SOURCE")
 	if source == "" {
 		source = "mock"
@@ -126,7 +138,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := &handler.App{Service: dashboard, Sessions: middleware.NewSessions(), View: renderer, LatestDate: latestDate, Demo: source == "mock"}
+	app := &handler.App{Service: dashboard, Users: accountStore, Sessions: middleware.NewSessions(accountStore), View: renderer, LatestDate: latestDate, Demo: source == "mock"}
 	if refresh != nil {
 		app.Refresh = refresh.Trigger
 		app.Latest = realtime.Today
@@ -247,5 +259,44 @@ func scheduleMaterialization(repo *dwh.Repository, channel *newsinergi.Repositor
 	defer ticker.Stop()
 	for range ticker.C {
 		refresh()
+	}
+}
+
+func userCommand(command string, args []string) {
+	store, err := users.Open(context.Background(), os.Getenv("APP_DBSTRING"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.DB.Close()
+	switch command {
+	case "bootstrap-admin":
+		if len(args) != 0 {
+			log.Fatal("bootstrap-admin takes no arguments")
+		}
+		created, err := store.BootstrapAdmin(context.Background(), os.Getenv("BM_ADMIN_USERNAME"), os.Getenv("BM_ADMIN_PASSWORD"), os.Getenv("BM_ADMIN_NAME"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		if created {
+			log.Print("admin created")
+		} else {
+			log.Print("admin already exists; skipped")
+		}
+	case "seed-users":
+		fs := flag.NewFlagSet("seed-users", flag.ExitOnError)
+		path := fs.String("file", "Username BMOT.csv", "semicolon-delimited user CSV")
+		if err := fs.Parse(args); err != nil {
+			log.Fatal(err)
+		}
+		file, err := os.Open(*path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+		result, err := store.SeedCSV(context.Background(), file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("users created: %d; existing usernames skipped: %d", result.Created, result.Skipped)
 	}
 }

@@ -12,7 +12,7 @@ go mod download
 go run ./cmd/web
 ```
 
-Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. Both `dwh` and `hybrid` modes require `DWH_DBSTRING` and a separate, writable **application** MySQL database in `APP_DBSTRING`. Hybrid mode also needs read-only Fincloud report credentials in `FINCLOUD_BASE_URL`, `FINCLOUD_USERNAME`, `FINCLOUD_PASSWORD`, `FINCLOUD_ROLE_ID`, and `FINCLOUD_LOCATION_ID`. The application creates tables only in `APP_DBSTRING`. DWH and Newsinergi reads use read-only transactions. Never point `APP_DBSTRING` at either source database. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
+Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and still requires `APP_DBSTRING` for local users. Both `dwh` and `hybrid` modes require `DWH_DBSTRING` and a separate, writable **application** MySQL database in `APP_DBSTRING`. Hybrid mode also needs read-only Fincloud report credentials in `FINCLOUD_BASE_URL`, `FINCLOUD_USERNAME`, `FINCLOUD_PASSWORD`, `FINCLOUD_ROLE_ID`, and `FINCLOUD_LOCATION_ID`. The application creates tables only in `APP_DBSTRING`. DWH and Newsinergi reads use read-only transactions. Never point `APP_DBSTRING` at either source database. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
 
 Hybrid mode reads DWH dates historically and today's latest published local snapshot. Page requests never call Fincloud. The scheduler and “Perbarui Data” action run the same asynchronous refresh; overlapping runs are dropped. Set `REALTIME_REFRESH_ENABLED=false` to disable the scheduler while retaining manual refresh. `REALTIME_REFRESH_INTERVAL`, `REALTIME_STALE_AFTER`, and `REALTIME_SNAPSHOT_RETENTION` are configurable. A failed or incomplete refresh leaves the previous published generation and aggregates intact. If no current-day generation exists, today's view is empty and explicitly shows the latest DWH watermark.
 
@@ -28,12 +28,23 @@ go run ./cmd/web materialize --from YYYY-MM-DD --to YYYY-MM-DD
 
 After startup, a background job checks the DWH watermark and fills dates after the last completed range. Set `DASHBOARD_MATERIALIZE_INTERVAL` to change its 30 minute interval. On an empty cache, set `MATERIALIZE_BACKFILL_FROM`; startup does not wait for backfill. Cards and trends read local aggregates when present. Missing aggregates fall back to existing source calculations. Realtime aggregates publish atomically with their snapshot. Nominative pages remain source-backed and paginated at 50 rows.
 
-| Demo user | Password | Access |
-| --- | --- | --- |
-| `admin` | `admin` | Consolidated view and branches 000–008 |
-| `branch001` | `demo` | Branch 001 only |
+## Local users
 
-Authentication uses in-memory opaque sessions and fixed demo credentials. Sessions end when the process restarts. Replace this component before production use, including when viewing real DWH data.
+All modes, including mock mode, require a writable local MySQL database in `APP_DBSTRING`. The app creates `bm_users` there on startup or when a user command runs. It rejects `dwhv2` and `newsinergi` as application databases. DWH and Fincloud credentials are unrelated to BM Monitoring login.
+
+Create the first administrator once with `BM_ADMIN_USERNAME`, `BM_ADMIN_PASSWORD` (8–72 characters), and `BM_ADMIN_NAME` in the environment:
+
+```sh
+go run ./cmd/web bootstrap-admin
+```
+
+Import the supplied operational users (16 USER accounts, two per branch). Existing usernames are skipped and their passwords remain unchanged:
+
+```sh
+go run ./cmd/web seed-users --file "Username BMOT.csv"
+```
+
+After login, ADMIN can create, edit, deactivate, and reset users at `/users`. USER accounts are restricted to their assigned branch except on Kinerja Keuangan. Sessions are opaque, server-side, and expire after eight hours or logout. Set `BM_COOKIE_SECURE=true` when TLS is terminated before the Go server.
 
 ## Routes
 

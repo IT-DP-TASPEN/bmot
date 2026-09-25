@@ -13,12 +13,14 @@ import (
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/http/middleware"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/users"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/view"
 )
 
 type App struct {
 	Service    service.DashboardService
 	Sessions   *middleware.Sessions
+	Users      UserStore
 	View       *view.Renderer
 	LatestDate time.Time
 	Latest     func() time.Time
@@ -39,6 +41,10 @@ type PageData struct {
 	Provenance                                                                                 domain.Provenance
 	RefreshAllowed                                                                             bool
 	RefreshMessage                                                                             string
+	CSRF                                                                                       string
+	Users                                                                                      []users.User
+	EditUser                                                                                   users.User
+	FormAction                                                                                 string
 }
 
 func (a *App) Routes() http.Handler {
@@ -46,15 +52,20 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.login)
-	mux.HandleFunc("POST /logout", a.logout)
-	mux.Handle("GET /{$}", a.Sessions.Require(http.HandlerFunc(a.index)))
-	mux.Handle("GET /dashboard", a.Sessions.Require(http.HandlerFunc(a.dashboard)))
-	mux.Handle("GET /tabungan", a.Sessions.Require(http.HandlerFunc(a.savings)))
-	mux.Handle("GET /deposito", a.Sessions.Require(http.HandlerFunc(a.deposits)))
-	mux.Handle("GET /kredit", a.Sessions.Require(http.HandlerFunc(a.loans)))
-	mux.Handle("GET /kinerja", a.Sessions.Require(http.HandlerFunc(a.financial)))
-	mux.Handle("GET /nominatif", a.Sessions.Require(http.HandlerFunc(a.nominative)))
-	mux.Handle("POST /refresh", a.Sessions.Require(http.HandlerFunc(a.refresh)))
+	mux.Handle("POST /logout", a.Sessions.RequireAuth(http.HandlerFunc(a.logout)))
+	mux.Handle("GET /users", a.Sessions.RequireAdmin(http.HandlerFunc(a.userList)))
+	mux.Handle("GET /users/new", a.Sessions.RequireAdmin(http.HandlerFunc(a.userNew)))
+	mux.Handle("POST /users", a.Sessions.RequireAdmin(http.HandlerFunc(a.userCreate)))
+	mux.Handle("GET /users/{id}/edit", a.Sessions.RequireAdmin(http.HandlerFunc(a.userEdit)))
+	mux.Handle("POST /users/{id}", a.Sessions.RequireAdmin(http.HandlerFunc(a.userUpdate)))
+	mux.Handle("GET /{$}", a.Sessions.RequireAuth(http.HandlerFunc(a.index)))
+	mux.Handle("GET /dashboard", a.Sessions.RequireAuth(http.HandlerFunc(a.dashboard)))
+	mux.Handle("GET /tabungan", a.Sessions.RequireAuth(http.HandlerFunc(a.savings)))
+	mux.Handle("GET /deposito", a.Sessions.RequireAuth(http.HandlerFunc(a.deposits)))
+	mux.Handle("GET /kredit", a.Sessions.RequireAuth(http.HandlerFunc(a.loans)))
+	mux.Handle("GET /kinerja", a.Sessions.RequireAuth(http.HandlerFunc(a.financial)))
+	mux.Handle("GET /nominatif", a.Sessions.RequireAuth(http.HandlerFunc(a.nominative)))
+	mux.Handle("POST /refresh", a.Sessions.RequireAuth(http.HandlerFunc(a.refresh)))
 	return mux
 }
 
@@ -89,6 +100,10 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
+	if !a.Sessions.CheckCSRF(r) {
+		http.Error(w, "CSRF tidak valid", http.StatusForbidden)
+		return
+	}
 	a.Sessions.Logout(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -110,10 +125,10 @@ func (a *App) base(w http.ResponseWriter, r *http.Request, active string) (PageD
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return PageData{}, false
 	}
-	if u.Branch != "ALL" && active != "kinerja" {
+	if u.Role != "ADMIN" && active != "kinerja" {
 		f.Branch = u.Branch
 	}
-	d := PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year(), RefreshAllowed: a.Refresh != nil && r.URL.Path != "/nominatif"}
+	d := PageData{Page: "dashboard", Active: active, Path: r.URL.Path, User: u, CSRF: a.Sessions.CSRF(r), Filter: f, Demo: a.Demo || a.LatestDate.IsZero(), MaxYear: latest.Year(), RefreshAllowed: a.Refresh != nil && r.URL.Path != "/nominatif"}
 	if source, ok := a.Service.(interface {
 		Provenance(context.Context, domain.Filter) (domain.Provenance, error)
 	}); ok {
@@ -138,6 +153,10 @@ func (a *App) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Permintaan tidak valid", 400)
+		return
+	}
+	if !a.Sessions.CheckCSRF(r) {
+		http.Error(w, "CSRF tidak valid", 403)
 		return
 	}
 	path := r.FormValue("return_to")

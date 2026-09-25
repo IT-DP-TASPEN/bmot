@@ -18,7 +18,7 @@ type Renderer struct{ templates map[string]*template.Template }
 
 func New(dir string) (*Renderer, error) {
 	r := &Renderer{templates: make(map[string]*template.Template)}
-	for _, page := range []string{"login", "dashboard", "nominative"} {
+	for _, page := range []string{"login", "dashboard", "nominative", "users"} {
 		t, err := template.New("layout").Funcs(FuncMap()).ParseFiles(filepath.Join(dir, "layout.html"), filepath.Join(dir, "partials.html"), filepath.Join(dir, page+".html"))
 		if err != nil {
 			return nil, err

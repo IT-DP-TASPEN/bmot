@@ -176,3 +176,9 @@ tfoot th { background:var(--color-bg); color:var(--color-text); font-weight:var(
   .kpi-grid,.ratio-grid { grid-template-columns:1fr }
   .demo-badge,.section-title span { display:none }
 }
+
+.user-form { width:min(560px,100%); padding:var(--space-6) }
+.user-form select { height:var(--control-height); border:1px solid var(--color-border); border-radius:var(--radius); background:var(--color-surface); padding:0 var(--space-3) }
+.user-form input[type=checkbox] { width:auto; height:auto; margin-right:var(--space-2) }
+
+.user-form .active-label { display:flex; align-items:center }

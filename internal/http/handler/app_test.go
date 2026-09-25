@@ -2,10 +2,13 @@ package handler
 
 import (
 	"context"
+	"database/sql"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/users"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
@@ -20,7 +23,7 @@ func TestRoutesLoginAndBranchScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(), View: renderer}
+	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(testAccounts()), View: renderer}
 	serve := func(method, target, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, target, strings.NewReader(body))
 		if cookie != nil {
@@ -36,7 +39,7 @@ func TestRoutesLoginAndBranchScope(t *testing.T) {
 	if w := serve("GET", "/dashboard", "", nil); w.Code != http.StatusSeeOther {
 		t.Fatalf("unauthenticated status %d", w.Code)
 	}
-	login := serve("POST", "/login", url.Values{"username": {"branch001"}, "password": {"demo"}}.Encode(), nil)
+	login := serve("POST", "/login", url.Values{"username": {"bm001"}, "password": {"test-password"}}.Encode(), nil)
 	if login.Code != http.StatusSeeOther || len(login.Result().Cookies()) == 0 {
 		t.Fatal("login failed")
 	}
@@ -56,7 +59,9 @@ func TestRoutesLoginAndBranchScope(t *testing.T) {
 	if w := serve("GET", "/dashboard?branch=002", "", cookie); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "001 - KPO 🔒") {
 		t.Fatalf("cross branch status %d", w.Code)
 	}
-	if w := serve("POST", "/logout", "", cookie); w.Code != http.StatusSeeOther {
+	csrfReq := httptest.NewRequest("GET", "/dashboard", nil)
+	csrfReq.AddCookie(cookie)
+	if w := serve("POST", "/logout", url.Values{"csrf_token": {app.Sessions.CSRF(csrfReq)}}.Encode(), cookie); w.Code != http.StatusSeeOther {
 		t.Fatalf("logout status %d", w.Code)
 	}
 	if w := serve("GET", "/dashboard", "", cookie); w.Code != http.StatusSeeOther {
@@ -83,9 +88,9 @@ func TestReportingContextRendersInContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(), View: renderer}
+	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(testAccounts()), View: renderer}
 	login := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest("POST", "/login", strings.NewReader("username=admin&password=admin"))
+	loginRequest := httptest.NewRequest("POST", "/login", strings.NewReader("username=rootuser&password=test-password"))
 	loginRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	app.Routes().ServeHTTP(login, loginRequest)
 	cookie := login.Result().Cookies()[0]
@@ -158,7 +163,7 @@ func TestPageAwareBranchScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	spy := &branchSpy{DashboardService: mock.NewDashboardService()}
-	app := &App{Service: spy, Sessions: middleware.NewSessions(), View: renderer}
+	app := &App{Service: spy, Sessions: middleware.NewSessions(testAccounts()), View: renderer}
 	serve := func(method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		if body != "" {
@@ -172,9 +177,9 @@ func TestPageAwareBranchScope(t *testing.T) {
 		return w
 	}
 	login := func(username string) *http.Cookie {
-		password := "demo"
-		if username == "admin" {
-			password = "admin"
+		password := "test-password"
+		if username == "rootuser" {
+			password = "test-password"
 		}
 		w := serve("POST", "/login", url.Values{"username": {username}, "password": {password}}.Encode(), nil)
 		if w.Code != http.StatusSeeOther || len(w.Result().Cookies()) == 0 {
@@ -182,7 +187,7 @@ func TestPageAwareBranchScope(t *testing.T) {
 		}
 		return w.Result().Cookies()[0]
 	}
-	branchUser := login("branch007")
+	branchUser := login("bm007")
 	for _, tc := range []struct {
 		name, path, want string
 		picker           bool
@@ -217,7 +222,7 @@ func TestPageAwareBranchScope(t *testing.T) {
 			}
 		})
 	}
-	admin := login("admin")
+	admin := login("rootuser")
 	for _, path := range []string{"/dashboard?branch=003", "/tabungan?branch=003", "/kredit?branch=003", "/kinerja?branch=003"} {
 		w := serve("GET", path, "", admin)
 		if w.Code != http.StatusOK || spy.last.Branch != "003" {
@@ -238,9 +243,9 @@ func TestBranchLabelsRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(), View: renderer}
+	app := &App{Service: mock.NewDashboardService(), Sessions: middleware.NewSessions(testAccounts()), View: renderer}
 	login := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/login", strings.NewReader("username=admin&password=admin"))
+	req := httptest.NewRequest("POST", "/login", strings.NewReader("username=rootuser&password=test-password"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	app.Routes().ServeHTTP(login, req)
 	req = httptest.NewRequest("GET", "/dashboard", nil)
@@ -268,4 +273,78 @@ func TestBranchLabelsRender(t *testing.T) {
 			t.Errorf("missing label %s", option.label)
 		}
 	}
+}
+
+type fakeAccounts struct {
+	mu   sync.Mutex
+	byID map[int64]users.User
+	next int64
+}
+
+func testAccounts() *fakeAccounts {
+	f := &fakeAccounts{byID: map[int64]users.User{}}
+	for _, u := range []users.User{
+		{Username: "rootuser", FullName: "Administrator", Position: "Administrator", Role: "ADMIN", IsActive: true},
+		{Username: "bm001", FullName: "BM KPO", Position: "Branch Manager", Role: "USER", BranchCode: "001", IsActive: true},
+		{Username: "bm007", FullName: "BM Cikarang", Position: "Branch Manager", Role: "USER", BranchCode: "007", IsActive: true},
+	} {
+		_, _ = f.Save(context.Background(), u, "test-password")
+	}
+	return f
+}
+func (f *fakeAccounts) ByUsername(_ context.Context, name string) (users.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.byID {
+		if u.Username == name {
+			return u, nil
+		}
+	}
+	return users.User{}, sql.ErrNoRows
+}
+func (f *fakeAccounts) ByID(_ context.Context, id int64) (users.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.byID[id]
+	if !ok {
+		return u, sql.ErrNoRows
+	}
+	return u, nil
+}
+func (f *fakeAccounts) List(_ context.Context) ([]users.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []users.User
+	for _, u := range f.byID {
+		out = append(out, u)
+	}
+	return out, nil
+}
+func (f *fakeAccounts) Save(_ context.Context, u users.User, password string) (int64, error) {
+	if err := users.Validate(u, password, u.ID == 0); err != nil {
+		return 0, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, other := range f.byID {
+		if other.Username == u.Username && id != u.ID {
+			return 0, users.ErrDuplicate
+		}
+	}
+	if u.ID == 0 {
+		f.next++
+		u.ID = f.next
+	} else if _, ok := f.byID[u.ID]; !ok {
+		return 0, sql.ErrNoRows
+	}
+	if password != "" {
+		if err := u.SetPassword(password); err != nil {
+			return 0, err
+		}
+	} else {
+		old := f.byID[u.ID]
+		u.KeepPassword(old)
+	}
+	f.byID[u.ID] = u
+	return u.ID, nil
 }
