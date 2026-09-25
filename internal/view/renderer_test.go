@@ -42,8 +42,17 @@ func TestMetricComparison(t *testing.T) {
 		{"NPL unchanged", "NPL", "percent", 400, 400, "0,00 pp", "change-neutral"},
 		{"LDR up", "LDR", "percent", 8000, 8500, "+5,00 pp", "change-neutral"},
 		{"LDR down", "LDR", "percent", 8500, 8000, "−5,00 pp", "change-neutral"},
-		{"Aset up", "Aset", "rupiah", 100, 110, "+10,0%", "change-neutral"},
-		{"Aset zero baseline", "Aset", "rupiah", 0, 110, "—", "change-neutral"},
+		{"Aset up", "Aset", "rupiah", 100_000_000, 110_000_000, "+Rp 10 Jt", "change-neutral"},
+		{"Aset down", "Aset", "rupiah", 110_000_000, 100_000_000, "−Rp 10 Jt", "change-neutral"},
+		{"Aset zero baseline", "Aset", "rupiah", 0, 10_000_000, "+Rp 10 Jt", "change-neutral"},
+		{"Aset unchanged", "Aset", "rupiah", 10_000_000, 10_000_000, "Rp 0", "change-neutral"},
+		{"Aset compact thousands", "Aset", "rupiah", 0, 750_000, "+Rp 750 Rb", "change-neutral"},
+		{"Aset compact millions", "Aset", "rupiah", 2_150_000, 0, "−Rp 2,15 Jt", "change-neutral"},
+		{"Aset compact billions", "Aset", "rupiah", 0, 4_200_000_000, "+Rp 4,2 M", "change-neutral"},
+		{"NOA up", "NOA", "count", 36_526, 36_891, "+365 rekening", "change-neutral"},
+		{"NOA down", "NOA", "count", 1_500, 1_250, "−250 rekening", "change-neutral"},
+		{"NOA thousands", "NOA", "count", 0, 1_250, "+1.250 rekening", "change-neutral"},
+		{"NOA unchanged", "NOA", "count", 1_250, 1_250, "0 rekening", "change-neutral"},
 		{"NIM zero baseline", "NIM", "percent", 0, 250, "+2,50 pp", "change-positive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,7 +76,7 @@ func TestMetricTemplatePreviousAvailability(t *testing.T) {
 		has        bool
 		want       string
 	}{
-		{"Aset", "rupiah", 100, true, "—</span> vs periode sebelumnya"},
+		{"Aset", "rupiah", 10_000_000, true, "+Rp 10 Jt</span> vs periode sebelumnya"},
 		{"NPL", "percent", 250, true, "+2,50 pp</span> vs periode sebelumnya"},
 		{"Aset", "rupiah", 100, false, "Posisi terpilih"},
 	} {

@@ -73,6 +73,18 @@ func Rupiah(n int64) string {
 	return neg + "Rp " + Integer(n)
 }
 
+func signedRupiah(n int64) string {
+	parts := strings.Split(Rupiah(n), " ")
+	if len(parts) == 3 && strings.Contains(parts[1], ",") {
+		parts[1] = strings.TrimSuffix(strings.TrimRight(parts[1], "0"), ",")
+	}
+	value := strings.Join(parts, " ")
+	if n > 0 {
+		return "+" + value
+	}
+	return value
+}
+
 func Percent(hundredths int64) string {
 	return strings.Replace(strconv.FormatFloat(float64(hundredths)/100, 'f', 2, 64), ".", ",", 1) + "%"
 }
@@ -126,14 +138,17 @@ func comparison(m domain.Metric) (string, string) {
 		}
 		return delta, class
 	}
-	if m.Previous == 0 {
-		return "—", class
+	difference := m.Value - m.Previous
+	if m.Unit == "count" {
+		if difference > 0 {
+			return "+" + Integer(difference) + " rekening", class
+		}
+		if difference < 0 {
+			return "−" + Integer(-difference) + " rekening", class
+		}
+		return "0 rekening", class
 	}
-	if m.Value == m.Previous {
-		return "→ 0,0%", class
-	}
-	delta := float64(m.Value-m.Previous) * 100 / float64(m.Previous)
-	return strings.Replace(fmt.Sprintf("%+.1f%%", delta), ".", ",", 1), class
+	return signedRupiah(difference), class
 }
 
 func FuncMap() template.FuncMap {
