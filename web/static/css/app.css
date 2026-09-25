@@ -23,11 +23,10 @@ input,select { outline:none }
 
 .app-shell { display:flex; min-height:100vh }
 .sidebar { width:var(--sidebar-width); flex:none; display:flex; flex-direction:column; height:100vh; position:sticky; top:0; color:#fff; background:var(--color-primary) }
-.brand { min-height:50px; display:flex; align-items:center; gap:var(--space-3); padding:var(--space-1) var(--space-5); color:#fff; border-bottom:1px solid rgb(255 255 255 / 22%) }
+.brand { min-height:50px; display:flex; align-items:center; gap:var(--space-2); padding:var(--space-1) var(--space-3); background:var(--color-surface); color:var(--color-primary); border-bottom:1px solid var(--color-border) }
 .brand:hover,.nav-item:hover { text-decoration:none }
-.brand-mark,.login-logo { display:grid; place-items:center; width:36px; height:36px; flex:none; border-radius:var(--radius); background:var(--color-accent); color:var(--color-text); font-size:var(--font-meta); font-weight:var(--weight-strong) }
-.brand strong { display:block; font-size:var(--font-body); line-height:1.3 }
-.brand small { display:block; margin-top:var(--space-1); color:rgb(255 255 255 / 75%); font-size:var(--font-small) }
+.brand-logo { width:80px; max-height:32px; object-fit:contain; flex:none }
+.brand strong { font-size:var(--font-meta); line-height:1.3; white-space:nowrap }
 .nav-label { margin:var(--space-6) var(--space-5) var(--space-2); color:rgb(255 255 255 / 65%); font-size:var(--font-small); font-weight:var(--weight-label) }
 .sidebar nav { display:grid; gap:var(--space-1); padding:0 var(--space-2) }
 .nav-item { min-height:var(--control-height); display:flex; align-items:center; gap:var(--space-3); padding:0 var(--space-3); border-left:3px solid transparent; border-radius:var(--radius); color:rgb(255 255 255 / 84%); font-weight:var(--weight-label) }
@@ -135,7 +134,8 @@ tfoot th { background:var(--color-bg); color:var(--color-text); font-weight:var(
 
 .login-screen { min-height:100vh; display:grid; grid-template-columns:minmax(420px,48%) 1fr; background:var(--color-surface) }
 .login-panel { width:min(390px,calc(100% - 40px)); margin:auto }
-.login-logo { width:48px; height:48px; margin-bottom:var(--space-8); font-size:var(--font-section) }
+.login-brand { display:flex; align-items:center; gap:var(--space-4); margin-bottom:var(--space-8); color:var(--color-primary); font-size:var(--font-section) }
+.login-logo { width:min(160px,40%); max-height:40px; object-fit:contain; flex:none }
 .login-panel h1 { margin:var(--space-2) 0; font-size:var(--font-page) }
 .login-panel p { margin:0 0 var(--space-8); color:var(--color-text-secondary) }
 .login-panel form { display:grid; gap:var(--space-4) }

@@ -1,4 +1,4 @@
-# Roro Jongrang Management Dashboard
+# BM Monitoring
 
 An internal BPR management dashboard with selectable mock and read-only DWH data sources. HTTP handlers depend on `service.DashboardService`; implementations live in `internal/service/mock` and `internal/service/dwh`.
 

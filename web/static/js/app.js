@@ -43,6 +43,8 @@
   }
   function init() {
     renderCharts(); syncFilter();
+    const heading = document.querySelector('#main .page-head h1');
+    if (heading?.textContent.trim()) document.title = heading.textContent.trim() + ' | BM Monitoring';
     const mode = document.getElementById('period-mode');
     const input = document.getElementById('period-input');
     if (mode && input && !mode.dataset.bound) { mode.dataset.bound = 'true'; mode.addEventListener('change', () => {
