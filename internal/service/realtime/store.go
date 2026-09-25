@@ -35,17 +35,20 @@ type Published struct {
 	Date, PublishedAt time.Time
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db        *sql.DB
+	OnPublish func(context.Context, *sql.Tx, int64, time.Time) error
+}
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	if dsn == "" {
-		return nil, errors.New("APP_DBSTRING is required for hybrid mode")
+		return nil, errors.New("APP_DBSTRING is required for DWH reporting")
 	}
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, errors.New("invalid APP_DBSTRING")
 	}
-	if cfg.DBName == "" || strings.EqualFold(cfg.DBName, "dwhv2") {
+	if cfg.DBName == "" || strings.EqualFold(cfg.DBName, "dwhv2") || strings.EqualFold(cfg.DBName, "newsinergi") {
 		return nil, errors.New("APP_DBSTRING must name a separate local application database")
 	}
 	cfg.ParseTime = true
@@ -112,6 +115,26 @@ func (s *Store) init(ctx context.Context) error {
 		 last_balance DECIMAL(30,2) NOT NULL,
 		 PRIMARY KEY (snapshot_id,source_location_id,co_a_no),
 		 FOREIGN KEY (snapshot_id) REFERENCES dashboard_snapshot_runs(id) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_daily_metrics (
+		 metric_date DATE NOT NULL, branch_code VARCHAR(3) NOT NULL,
+		 metric_key VARCHAR(64) NOT NULL, metric_value DECIMAL(30,0) NOT NULL,
+		 source VARCHAR(16) NOT NULL, source_snapshot_id BIGINT NULL,
+		 built_at DATETIME(6) NOT NULL,
+		 PRIMARY KEY (metric_date,branch_code,metric_key,source),
+		 INDEX (source,metric_date,branch_code))`,
+		`CREATE TABLE IF NOT EXISTS dashboard_materialization_runs (
+		 id BIGINT AUTO_INCREMENT PRIMARY KEY, source VARCHAR(16) NOT NULL,
+		 date_from DATE NOT NULL, date_to DATE NOT NULL,
+		 started_at DATETIME(6) NOT NULL, completed_at DATETIME(6) NULL,
+		 status VARCHAR(16) NOT NULL, error_message VARCHAR(500) NULL,
+		 INDEX (source,status,date_to))`,
+		`CREATE TABLE IF NOT EXISTS dashboard_maturity_preview (
+		 metric_date DATE NOT NULL, branch_code VARCHAR(3) NOT NULL,
+		 source VARCHAR(16) NOT NULL, slot TINYINT NOT NULL,
+		 customer_name VARCHAR(255) NOT NULL, account_no VARCHAR(80) NOT NULL,
+		 account_branch VARCHAR(3) NOT NULL, maturity_date DATE NOT NULL,
+		 amount BIGINT NOT NULL, source_snapshot_id BIGINT NULL,
+		 PRIMARY KEY (metric_date,branch_code,source,slot))`,
 	} {
 		if _, err := s.db.ExecContext(ctx, ddl); err != nil {
 			return err
@@ -190,6 +213,11 @@ func (s *Store) Publish(ctx context.Context, id int64, d Dataset) error {
 	}
 	if err := insertBatches(ctx, tx, "dashboard_rt_balance_sheet", []string{"snapshot_id", "as_of_date", "source_location_id", "co_a_no", "chart_of_account", "last_balance"}, len(d.Balance), func(i int) []any { x := d.Balance[i]; return []any{id, day, x.Branch, x.COA, x.Name, x.Amount} }); err != nil {
 		return err
+	}
+	if s.OnPublish != nil {
+		if err := s.OnPublish(ctx, tx, id, d.Date); err != nil {
+			return err
+		}
 	}
 	now := time.Now().UTC()
 	if _, err := tx.ExecContext(ctx, `UPDATE dashboard_snapshot_runs SET status='published',completed_at=?,published_at=? WHERE id=? AND status='validating'`, now, now, id); err != nil {

@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -26,6 +28,12 @@ func TestLocalSnapshotAtomicPublish(t *testing.T) {
 	}
 	defer store.Close()
 	day := Today()
+	store.OnPublish = func(ctx context.Context, tx *sql.Tx, id int64, date time.Time) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO dashboard_daily_metrics (metric_date,branch_code,metric_key,metric_value,source,source_snapshot_id,built_at)
+		VALUES (?,'001','test_publish',?,'realtime',?,UTC_TIMESTAMP(6))
+		ON DUPLICATE KEY UPDATE metric_value=VALUES(metric_value),source_snapshot_id=VALUES(source_snapshot_id)`, date, id, id)
+		return err
+	}
 	dataset := func(suffix string) Dataset {
 		return Dataset{Date: day,
 			Savings:  []Saving{{Branch: "001", Product: "119", Account: "S" + suffix, Customer: "A", CIF: "C1", Balance: "100.00"}},
@@ -36,6 +44,7 @@ func TestLocalSnapshotAtomicPublish(t *testing.T) {
 	}
 	var ids []int64
 	defer func() {
+		store.db.ExecContext(ctx, `DELETE FROM dashboard_daily_metrics WHERE metric_key='test_publish' AND metric_date=?`, day)
 		for _, id := range ids {
 			store.db.ExecContext(ctx, `DELETE FROM dashboard_snapshot_runs WHERE id=?`, id)
 		}
@@ -72,6 +81,26 @@ func TestLocalSnapshotAtomicPublish(t *testing.T) {
 	p, err := store.Latest(ctx)
 	if err != nil || p == nil || p.ID != first {
 		t.Fatalf("previous published generation lost: %+v %v", p, err)
+	}
+	store.OnPublish = func(context.Context, *sql.Tx, int64, time.Time) error { return errors.New("aggregate failed") }
+	failed, err := store.Start(ctx, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids = append(ids, failed)
+	if err := store.Publish(ctx, failed, dataset("failed")); err == nil {
+		t.Fatal("failed aggregate published")
+	}
+	if err := store.Fail(ctx, failed, "aggregate failed"); err != nil {
+		t.Fatal(err)
+	}
+	var snapshotID int64
+	if err := store.db.QueryRowContext(ctx, `SELECT source_snapshot_id FROM dashboard_daily_metrics WHERE metric_date=? AND branch_code='001' AND metric_key='test_publish' AND source='realtime'`, day).Scan(&snapshotID); err != nil || snapshotID != first {
+		t.Fatalf("previous aggregate lost: snapshot=%d error=%v", snapshotID, err)
+	}
+	store.OnPublish = func(ctx context.Context, tx *sql.Tx, id int64, date time.Time) error {
+		_, err := tx.ExecContext(ctx, `UPDATE dashboard_daily_metrics SET metric_value=?,source_snapshot_id=? WHERE metric_date=? AND branch_code='001' AND metric_key='test_publish' AND source='realtime'`, id, id, date)
+		return err
 	}
 	third, err := store.Start(ctx, day)
 	if err != nil {

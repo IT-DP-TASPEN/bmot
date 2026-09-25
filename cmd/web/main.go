@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -41,6 +43,10 @@ func loadEnv(path string) {
 
 func main() {
 	loadEnv(".env")
+	if len(os.Args) > 1 && os.Args[1] == "materialize" {
+		materializeCommand(os.Args[2:])
+		return
+	}
 	source := os.Getenv("DASHBOARD_DATA_SOURCE")
 	if source == "" {
 		source = "mock"
@@ -65,15 +71,18 @@ func main() {
 			log.Fatal("Newsinergi unavailable; check DWH_DBSTRING and read-only connectivity")
 		}
 		closeNewsinergi = channeling.Close
+		store, err = realtime.Open(context.Background(), os.Getenv("APP_DBSTRING"))
+		if err != nil {
+			log.Fatalf("application metric database unavailable: %v", err)
+		}
+		metrics := dwh.NewMetricStore(store.DB())
 		if source == "dwh" {
 			s := dwh.NewDashboardService(repo, latest)
 			s.SetChanneling(channeling)
+			s.SetMetricStore(metrics)
+			go scheduleMaterialization(repo, channeling, metrics, s)
 			dashboard, latestDate = s, latest
 			break
-		}
-		store, err = realtime.Open(context.Background(), os.Getenv("APP_DBSTRING"))
-		if err != nil {
-			log.Fatalf("application snapshot database unavailable: %v", err)
 		}
 		staleAfter := duration("REALTIME_STALE_AFTER", 2*time.Hour)
 		retention := integer("REALTIME_SNAPSHOT_RETENTION", 3)
@@ -91,22 +100,13 @@ func main() {
 		}
 		hybrid := dwh.NewHybridDashboardService(repo, dwh.NewSnapshotRepository(store.DB()), latest, snapshot, staleAfter)
 		hybrid.SetChanneling(channeling)
+		hybrid.SetMetricStore(metrics)
+		store.OnPublish = func(ctx context.Context, tx *sql.Tx, id int64, day time.Time) error {
+			return metrics.MaterializeRealtime(ctx, tx, id, day, repo, channeling)
+		}
 		dashboard = hybrid
 		latestDate = realtime.Today()
-		go func() {
-			ticker := time.NewTicker(duration("DWH_WATERMARK_INTERVAL", time.Hour))
-			defer ticker.Stop()
-			for range ticker.C {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				day, err := repo.LatestCommon(ctx)
-				cancel()
-				if err != nil {
-					log.Print("DWH watermark refresh failed")
-					continue
-				}
-				hybrid.SetWatermark(day)
-			}
-		}()
+		go scheduleMaterialization(repo, channeling, metrics, hybrid)
 		if os.Getenv("REALTIME_REFRESH_ENABLED") != "false" {
 			go refresh.Schedule(context.Background(), duration("REALTIME_REFRESH_INTERVAL", 30*time.Minute))
 		}
@@ -161,4 +161,91 @@ func integer(key string, fallback int) int {
 		log.Fatalf("invalid %s", key)
 	}
 	return n
+}
+
+func materializeCommand(args []string) {
+	fs := flag.NewFlagSet("materialize", flag.ExitOnError)
+	fromArg := fs.String("from", os.Getenv("MATERIALIZE_BACKFILL_FROM"), "first date (YYYY-MM-DD)")
+	toArg := fs.String("to", "", "last date (YYYY-MM-DD; default DWH watermark)")
+	force := fs.Bool("force", false, "rebuild existing aggregates")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+	from, err := time.Parse("2006-01-02", *fromArg)
+	if err != nil {
+		log.Fatal("--from or MATERIALIZE_BACKFILL_FROM is required")
+	}
+	ctx := context.Background()
+	repo, latest, err := dwh.Open(ctx, os.Getenv("DWH_DBSTRING"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer repo.Close()
+	to := latest
+	if *toArg != "" {
+		to, err = time.Parse("2006-01-02", *toArg)
+		if err != nil {
+			log.Fatal("invalid --to")
+		}
+	}
+	if to.After(latest) {
+		log.Fatal("--to exceeds DWH watermark")
+	}
+	channel, err := newsinergi.Open(ctx, os.Getenv("DWH_DBSTRING"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer channel.Close()
+	store, err := realtime.Open(ctx, os.Getenv("APP_DBSTRING"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	if err := dwh.NewMetricStore(store.DB()).Materialize(ctx, repo, channel, from, to, *force); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func scheduleMaterialization(repo *dwh.Repository, channel *newsinergi.Repository, metrics *dwh.MetricStore, dashboard *dwh.DashboardService) {
+	// ponytail: one scheduler per process; add a database lease if multiple replicas refresh together.
+	refresh := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		latest, err := repo.LatestCommon(ctx)
+		if err != nil {
+			log.Printf("DWH watermark refresh failed: %v", err)
+			return
+		}
+		dashboard.SetWatermark(latest)
+		from, err := metrics.LatestDWH(ctx)
+		if err != nil {
+			log.Printf("materialization watermark failed: %v", err)
+			return
+		}
+		if from.IsZero() {
+			value := os.Getenv("MATERIALIZE_BACKFILL_FROM")
+			if value == "" {
+				return
+			}
+			from, err = time.Parse("2006-01-02", value)
+			if err != nil {
+				log.Printf("invalid MATERIALIZE_BACKFILL_FROM: %v", err)
+				return
+			}
+		} else {
+			from = from.AddDate(0, 0, 1)
+		}
+		if from.After(latest) {
+			return
+		}
+		if err := metrics.Materialize(ctx, repo, channel, from, latest, false); err != nil {
+			log.Printf("historical materialization failed: %v", err)
+		}
+	}
+	refresh()
+	ticker := time.NewTicker(duration("DASHBOARD_MATERIALIZE_INTERVAL", 30*time.Minute))
+	defer ticker.Stop()
+	for range ticker.C {
+		refresh()
+	}
 }

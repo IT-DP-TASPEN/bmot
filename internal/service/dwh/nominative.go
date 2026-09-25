@@ -102,11 +102,15 @@ func (q reader) Nominative(ctx context.Context, f domain.NominativeFilter, res d
 		filteredWhere += fmt.Sprintf(" AND CONCAT_WS(' ',%s,%s,%s,%s) LIKE ?", nameCol, accountCol, cifCol, branchCol)
 		filteredArgs = append(filteredArgs, "%"+search+"%")
 	}
-	filteredSum := fmt.Sprintf("SELECT COUNT(*),CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED) FROM %s WHERE %s", amount, table, filteredWhere)
-	if err := q.tx.QueryRowContext(ctx, filteredSum, filteredArgs...).Scan(&res.FilterCount, &res.Filtered); err != nil {
-		return res, err
+	if search == "" {
+		res.FilterCount, res.Filtered = res.Count, res.Total
+	} else {
+		filteredSum := fmt.Sprintf("SELECT COUNT(*),CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED) FROM %s WHERE %s", amount, table, filteredWhere)
+		if err := q.tx.QueryRowContext(ctx, filteredSum, filteredArgs...).Scan(&res.FilterCount, &res.Filtered); err != nil {
+			return res, err
+		}
 	}
-	const size = 15
+	const size = 50
 	res.Pages = (res.FilterCount + size - 1) / size
 	if res.Pages == 0 {
 		res.Pages = 1

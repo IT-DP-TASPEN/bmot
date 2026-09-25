@@ -3,7 +3,6 @@ package dwh
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"strings"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 
 type DashboardService struct {
 	repo, realtime *Repository
+	metrics        *MetricStore
 	channeling     *newsinergi.Repository
 	watermark      atomic.Int64
 	now            func() time.Time
@@ -151,13 +151,48 @@ func nimDate(asOf time.Time, month int) time.Time {
 }
 
 type snapshot struct {
-	savings  map[string]fundingPosition
-	deposits map[string]fundingPosition
-	loans    map[string]loanPosition
-	balance  map[string]balancePosition
+	savings         map[string]fundingPosition
+	deposits        map[string]fundingPosition
+	loans           map[string]loanPosition
+	balance         map[string]balancePosition
+	cachedFinancial map[string]map[string]int64
 }
 
 func (s *DashboardService) load(ctx context.Context, f domain.Filter, kinds string) (snapshot, error) {
+	if s.metrics != nil {
+		cached, missing, err := s.cachedSnapshot(ctx, f, kinds)
+		if err != nil {
+			return snapshot{}, err
+		}
+		for kind, days := range missing {
+			if len(days) == 0 {
+				continue
+			}
+			byRepo := map[*Repository][]time.Time{}
+			seen := map[string]bool{}
+			for _, day := range days {
+				if !seen[key(day)] {
+					byRepo[s.sourceFor(day)] = append(byRepo[s.sourceFor(day)], day)
+					seen[key(day)] = true
+				}
+			}
+			for repo, sourceDays := range byRepo {
+				if kind == "b" {
+					for _, day := range append([]time.Time{}, sourceDays...) {
+						for month := 1; month <= int(day.Month()); month++ {
+							sourceDays = append(sourceDays, nimDate(day, month))
+						}
+					}
+				}
+				part, e := loadFrom(ctx, repo, f.Branch, f.Mode, sourceDays, kind)
+				if e != nil {
+					return snapshot{}, e
+				}
+				cached.merge(part)
+			}
+		}
+		return cached, nil
+	}
 	days := reportDates(f)
 	if strings.Contains(kinds, "b") {
 		for _, target := range []domain.Filter{f, domain.Previous(f)} {
@@ -209,6 +244,12 @@ func (x *snapshot) merge(part snapshot) {
 	}
 	for k, v := range part.balance {
 		x.balance[k] = v
+	}
+	for k, v := range part.cachedFinancial {
+		if x.cachedFinancial == nil {
+			x.cachedFinancial = map[string]map[string]int64{}
+		}
+		x.cachedFinancial[k] = v
 	}
 }
 
@@ -287,6 +328,9 @@ func percent(n, d int64) int64 {
 }
 
 func (x snapshot) financial(f domain.Filter) map[string]int64 {
+	if cached, ok := x.cachedFinancial[key(f.Date)]; ok {
+		return cached
+	}
 	b := x.balance[key(f.Date)]
 	if b == nil {
 		return nil
@@ -417,10 +461,22 @@ func (s *DashboardService) GetLoans(ctx context.Context, f domain.Filter) (domai
 	}
 	channeling := map[string]newsinergi.Position{}
 	if s.channeling != nil {
-		filters := append(points(f), domain.Previous(f))
-		channeling, err = s.channeling.Positions(ctx, filters)
-		if err != nil {
-			return domain.Dashboard{}, err
+		missing := append(points(f), domain.Previous(f))
+		if s.metrics != nil {
+			channeling, missing, err = s.metrics.channeling(ctx, f)
+			if err != nil {
+				return domain.Dashboard{}, err
+			}
+		}
+		if len(missing) > 0 {
+			fallback, e := s.channeling.Positions(ctx, missing)
+			err = e
+			if err != nil {
+				return domain.Dashboard{}, err
+			}
+			for date, position := range fallback {
+				channeling[date] = position
+			}
 		}
 	}
 	d := domain.Dashboard{Title: "Kredit", Subtitle: "Channeling dan Organik"}
@@ -479,47 +535,37 @@ func (s *DashboardService) GetFinancialPerformance(ctx context.Context, f domain
 }
 
 func (s *DashboardService) GetDepositMaturities(ctx context.Context, f domain.Filter) (domain.Dashboard, error) {
-	d := domain.Dashboard{Title: "Deposito", Subtitle: "Jatuh Tempo"}
-	var rows []maturityRow
-	err := s.sourceFor(f.Date).read(ctx, func(q reader) (err error) { rows, err = q.Maturities(ctx, f.Date, f.Branch); return err })
+	if s.metrics != nil {
+		cache, ok, err := s.cachedMaturities(ctx, f)
+		if err != nil {
+			return domain.Dashboard{}, err
+		}
+		if ok {
+			return cache, nil
+		}
+	}
+	var metrics []metricRow
+	var preview []maturityRow
+	err := s.sourceFor(f.Date).read(ctx, func(q reader) (e error) {
+		metrics, e = maturityMetrics(ctx, q, []time.Time{f.Date}, "dwh", 0)
+		if e != nil {
+			return e
+		}
+		preview, e = q.Maturities(ctx, f.Date, f.Branch, 8)
+		return e
+	})
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
-	if len(rows) == 0 {
-		d.Empty = true
-		return d, nil
-	}
-	series := domain.Series{Name: "Nominal jatuh tempo"}
-	for week := 0; week < 12; week++ {
-		series.Points = append(series.Points, domain.Point{Label: fmt.Sprintf("Minggu %d", week+1)})
-	}
-	for _, b := range []struct {
-		name, bucket string
-		min, max     int
-	}{{"≤ 7 hari", "0-7", 0, 7}, {"8–30 hari", "8-30", 8, 30}, {"> 30 hari", "31+", 31, 99999}} {
-		var noa, amount int64
-		for _, r := range rows {
-			days := int(r.Due.Sub(f.Date).Hours() / 24)
-			if days >= b.min && days <= b.max {
-				noa++
-				amount += r.AmountCents
-			}
-		}
-		d.Groups = append(d.Groups, domain.Group{Title: b.name, Metrics: []domain.Metric{
-			{Label: "NOA", Value: noa, Unit: "count", Domain: "deposito", Category: "jatuh-tempo", Key: "noa", Bucket: b.bucket},
-			{Label: "Nominal", Value: int64(math.Round(float64(amount) / 100)), Unit: "rupiah", Domain: "deposito", Category: "jatuh-tempo", Key: "balance", Bucket: b.bucket},
-		}})
-	}
-	for _, r := range rows {
-		d.Maturities = append(d.Maturities, domain.Maturity{Name: r.Name, Account: r.Account, Branch: r.Branch, Due: r.Due, Amount: int64(math.Round(float64(r.AmountCents) / 100))})
-		week := int(r.Due.Sub(f.Date).Hours()/24) / 7
-		if week >= 0 && week < 12 {
-			series.Points[week].Value += r.AmountCents
+	values := map[string]int64{}
+	for _, row := range metrics {
+		if row.branch == f.Branch {
+			values[row.name] = row.value
 		}
 	}
-	for i := range series.Points {
-		series.Points[i].Value = int64(math.Round(float64(series.Points[i].Value) / 100))
+	d := maturityDashboard(values)
+	for _, row := range preview {
+		d.Maturities = append(d.Maturities, domain.Maturity{Name: row.Name, Account: row.Account, Branch: row.Branch, Due: row.Due, Amount: int64(math.Round(float64(row.AmountCents) / 100))})
 	}
-	d.Series = []domain.Series{series}
 	return d, nil
 }

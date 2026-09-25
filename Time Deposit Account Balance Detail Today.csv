@@ -1,0 +1,5 @@
+date|branch_code|product_id|product_name|account_no|customer_name|cif_no|certificate_no|interest_rate|start_date|maturity_date|term|automatic_rollover|compound_interest|currency|nominal|interest_accrual|marketing_id|group_id|service_id
+2026-09-24|"001 - Kantor Pusat Operasional"|201|"Time Deposit"|2000010000000001|"ITA YULIA LESTARI"|00100013785|AA001505|6.00|2026-09-20|2026-10-20|"1 Months"|Yes|No|IDR|7,500,000.00|4,931.52|||
+2026-09-24|"001 - Kantor Pusat Operasional"|201|"Time Deposit"|2000010000000002|Kopmarindo|00100000408|AA001696|6.00|2026-09-06|2026-10-06|"1 Months"|Yes|No|IDR|50,000,000.00|147,945.24|||
+2026-09-24|"001 - Kantor Pusat Operasional"|201|"Time Deposit"|2000010000000003|SUNARYO|00100000418|AA001504|6.00|2026-09-20|2026-10-20|"1 Months"|Yes|No|IDR|7,500,000.00|4,931.52|||
+2026-09-24|"001 - Kantor Pusat Operasional"|201|"Time Deposit"|2000010000000004|"Anggita Cythia Dewi"|00100000415|AA001506|6.00|2026-09-20|2026-10-20|"1 Months"|Yes|No|IDR|7,500,000.00|4,931.52|||

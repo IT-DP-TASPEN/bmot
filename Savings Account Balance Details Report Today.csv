@@ -1,0 +1,5 @@
+branch_code|product_id|account_no|customer_name|cif_no|acc_alt_no|interest_rate|account_status|account_registered_date|currency|debit_balance|credit_balance|accrue_interest_debit|accrue_interest_credit|marketing_id|group_id|service_id
+001-Kantor Pusat Operasional|101|1000010000000001|Muhamad|00100000003|0110101511|1.5|Dormant|2011-05-29|IDR|0.00|846,213.83|0.00|799.94|||
+001-Kantor Pusat Operasional|101|1000010000000002|Waroh|00100013772|0110101459|1.5|Dormant|2011-12-31|IDR|0.00|4,038,355.92|0.00|3,817.08|||
+001-Kantor Pusat Operasional|101|1000010000000003|"IKE AGUSTINA"|00100000032|0110101858|1.5|Active|2011-12-23|IDR|0.00|145,993.48|0.00|1,665.61|||
+001-Kantor Pusat Operasional|101|1000010000000004|"NANI ELFRIDA"|00100000035|0110101109|1.5|Active|2011-05-13|IDR|0.00|9,461,950.82|0.00|8,708.91|||

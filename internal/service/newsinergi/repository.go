@@ -17,12 +17,54 @@ type Position struct {
 	Exists           bool
 }
 
+type DailyBooking struct {
+	Date    time.Time
+	Branch  string
+	Booking int64
+	Count   int64
+}
+
+// Daily aggregates signed applications once for a materialization range.
+func (r *Repository) Daily(ctx context.Context, through time.Time) ([]DailyBooking, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT DATE(ca.tanggal_realisasi),rb.code,COUNT(*),
+		CAST(ROUND(COALESCE(SUM(ca.plafond_kredit),0),0) AS SIGNED)
+		FROM credit_applications ca JOIN branches rb ON rb.id=ca.requestor_branch_id
+		WHERE ca.status='pk_signed' AND rb.company_id=1 AND ca.tanggal_realisasi < ?
+		GROUP BY DATE(ca.tanggal_realisasi),rb.code`, through.AddDate(0, 0, 1))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DailyBooking
+	for rows.Next() {
+		var x DailyBooking
+		if err = rows.Scan(&x.Date, &x.Branch, &x.Count, &x.Booking); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	return out, tx.Commit()
+}
+
 func Open(ctx context.Context, dwhDSN string) (*Repository, error) {
 	cfg, err := mysql.ParseDSN(dwhDSN)
 	if err != nil || cfg.DBName != "dwhv2" {
 		return nil, errors.New("invalid DWH_DBSTRING for Newsinergi")
 	}
 	cfg.DBName = "newsinergi"
+	cfg.ParseTime = true
+	cfg.MultiStatements = false
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		return nil, errors.New("opening Newsinergi failed")

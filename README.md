@@ -12,9 +12,21 @@ go mod download
 go run ./cmd/web
 ```
 
-Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. `DASHBOARD_DATA_SOURCE=dwh` reads historical data through `DWH_DBSTRING`. `DASHBOARD_DATA_SOURCE=hybrid` also needs a separate, writable **application** MySQL database in `APP_DBSTRING` and read-only Fincloud report credentials in `FINCLOUD_BASE_URL`, `FINCLOUD_USERNAME`, `FINCLOUD_PASSWORD`, `FINCLOUD_ROLE_ID`, and `FINCLOUD_LOCATION_ID`. The application creates its snapshot tables only in `APP_DBSTRING`. The DWH has its own pool and every dashboard query runs in a read-only transaction. Never point `APP_DBSTRING` at the DWH. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
+Open <http://localhost:8080/login>. `ADDR` changes the listening address. `DASHBOARD_DATA_SOURCE=mock` is the default and needs no database. Both `dwh` and `hybrid` modes require `DWH_DBSTRING` and a separate, writable **application** MySQL database in `APP_DBSTRING`. Hybrid mode also needs read-only Fincloud report credentials in `FINCLOUD_BASE_URL`, `FINCLOUD_USERNAME`, `FINCLOUD_PASSWORD`, `FINCLOUD_ROLE_ID`, and `FINCLOUD_LOCATION_ID`. The application creates tables only in `APP_DBSTRING`. DWH and Newsinergi reads use read-only transactions. Never point `APP_DBSTRING` at either source database. ECharts 5.6.0 and HTMX 2.0.8 browser bundles are served from `web/static/js`; their licenses and ECharts notice are stored beside them.
 
-Hybrid mode reads DWH dates historically and today's latest published local snapshot. Page requests never call Fincloud. The scheduler and “Perbarui Data” action run the same asynchronous refresh; overlapping runs are dropped. Set `REALTIME_REFRESH_ENABLED=false` to disable the scheduler while retaining manual refresh. `REALTIME_REFRESH_INTERVAL`, `REALTIME_STALE_AFTER`, `REALTIME_SNAPSHOT_RETENTION`, and `DWH_WATERMARK_INTERVAL` are configurable. A failed or incomplete refresh leaves the previous published generation intact. If no current-day generation exists, today's view is empty and explicitly shows the latest DWH watermark.
+Hybrid mode reads DWH dates historically and today's latest published local snapshot. Page requests never call Fincloud. The scheduler and “Perbarui Data” action run the same asynchronous refresh; overlapping runs are dropped. Set `REALTIME_REFRESH_ENABLED=false` to disable the scheduler while retaining manual refresh. `REALTIME_REFRESH_INTERVAL`, `REALTIME_STALE_AFTER`, and `REALTIME_SNAPSHOT_RETENTION` are configurable. A failed or incomplete refresh leaves the previous published generation and aggregates intact. If no current-day generation exists, today's view is empty and explicitly shows the latest DWH watermark.
+
+## Local reporting cache
+
+Set `APP_DBSTRING` to a writable application database, then backfill before normal traffic:
+
+```sh
+go run ./cmd/web materialize --from YYYY-MM-DD --to YYYY-MM-DD
+```
+
+`--to` defaults to the latest common DWH date. `MATERIALIZE_BACKFILL_FROM` can replace `--from`. Use `--force` only to rebuild an existing date range. The command batches dates by month and writes only to the application database. It creates `dashboard_daily_metrics`, `dashboard_materialization_runs`, and `dashboard_maturity_preview` alongside the realtime snapshot tables.
+
+After startup, a background job checks the DWH watermark and fills dates after the last completed range. Set `DASHBOARD_MATERIALIZE_INTERVAL` to change its 30 minute interval. On an empty cache, set `MATERIALIZE_BACKFILL_FROM`; startup does not wait for backfill. Cards and trends read local aggregates when present. Missing aggregates fall back to existing source calculations. Realtime aggregates publish atomically with their snapshot. Nominative pages remain source-backed and paginated at 50 rows.
 
 | Demo user | Password | Access |
 | --- | --- | --- |

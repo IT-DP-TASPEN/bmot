@@ -16,6 +16,8 @@ const (
 	depositTable = "fincloud_eod_time_deposit_account_balance_details"
 	loanTable    = "fincloud_eod_detail_outstanding_rekening_pinjaman"
 	balanceTable = "fincloud_balance_sheet_reports"
+	savingsABP   = "'119','199'"
+	depositABP   = "'203','204'"
 )
 
 type tables struct{ savings, deposits, loans, balance string }
@@ -138,15 +140,9 @@ func (q reader) funding(ctx context.Context, table, balance, branchCol, abp stri
 	mark, args := dates(days)
 	where, bargs := scope(branchCol, branch)
 	args = append(args, bargs...)
-	if excluded {
-		where += " AND product_id NOT IN ('RAK','TAB_INTERNAL')"
-	}
-	amount := money(balance)
-	query := fmt.Sprintf(`SELECT as_of_date,
-		CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED),
-		CAST(ROUND(COALESCE(SUM(CASE WHEN product_id IN (%s) THEN %s ELSE 0 END),0),0) AS SIGNED),
-		COUNT(*), SUM(CASE WHEN product_id IN (%s) THEN 1 ELSE 0 END)
-		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, amount, abp, amount, abp, table, mark, where)
+	where += fundingExclusion(excluded)
+	query := fmt.Sprintf(`SELECT as_of_date,%s
+		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, fundingProjection(balance, abp), table, mark, where)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -164,12 +160,27 @@ func (q reader) funding(ctx context.Context, table, balance, branchCol, abp stri
 	return out, rows.Err()
 }
 
+func fundingProjection(balance, abp string) string {
+	amount := money(balance)
+	return fmt.Sprintf(`
+		CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED),
+		CAST(ROUND(COALESCE(SUM(CASE WHEN product_id IN (%s) THEN %s ELSE 0 END),0),0) AS SIGNED),
+		COUNT(*), SUM(CASE WHEN product_id IN (%s) THEN 1 ELSE 0 END)`, amount, abp, amount, abp)
+}
+
+func fundingExclusion(excluded bool) string {
+	if excluded {
+		return " AND product_id NOT IN ('RAK','TAB_INTERNAL')"
+	}
+	return ""
+}
+
 func (q reader) SavingsPosition(ctx context.Context, days []time.Time, branch string) (map[string]fundingPosition, error) {
-	return q.funding(ctx, q.tables.savings, "credit_balance", "branch", "'119','199'", true, days, branch)
+	return q.funding(ctx, q.tables.savings, "credit_balance", "branch", savingsABP, true, days, branch)
 }
 
 func (q reader) DepositPosition(ctx context.Context, days []time.Time, branch string) (map[string]fundingPosition, error) {
-	return q.funding(ctx, q.tables.deposits, "nominal", "branch_code", "'203','204'", false, days, branch)
+	return q.funding(ctx, q.tables.deposits, "nominal", "branch_code", depositABP, false, days, branch)
 }
 
 func periodStartSQL(mode string) string {
@@ -187,12 +198,8 @@ func (q reader) LoanPosition(ctx context.Context, days []time.Time, branch, mode
 	mark, args := dates(days)
 	where, bargs := scope("cabang_rekening", branch)
 	args = append(args, bargs...)
-	outstanding, original := money("sisa_pokok_pinjaman"), money("pokok_pinjaman")
-	query := fmt.Sprintf(`SELECT as_of_date,
-		CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED),
-		CAST(ROUND(COALESCE(SUM(CASE WHEN kolektibilitas_bi IN ('3','4','5') THEN %s ELSE 0 END),0),0) AS SIGNED),
-		CAST(ROUND(COALESCE(SUM(CASE WHEN STR_TO_DATE(periode_mulai,'%%d/%%m/%%Y') BETWEEN %s AND as_of_date THEN %s ELSE 0 END),0),0) AS SIGNED)
-		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, outstanding, outstanding, periodStartSQL(mode), original, q.tables.loans, mark, where)
+	query := fmt.Sprintf(`SELECT as_of_date,%s
+		FROM %s WHERE as_of_date IN (%s)%s GROUP BY as_of_date`, loanProjection(mode), q.tables.loans, mark, where)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -210,16 +217,23 @@ func (q reader) LoanPosition(ctx context.Context, days []time.Time, branch, mode
 	return out, rows.Err()
 }
 
+func loanProjection(mode string) string {
+	outstanding, original := money("sisa_pokok_pinjaman"), money("pokok_pinjaman")
+	return fmt.Sprintf(`
+		CAST(ROUND(COALESCE(SUM(%s),0),0) AS SIGNED),
+		CAST(ROUND(COALESCE(SUM(CASE WHEN kolektibilitas_bi IN ('3','4','5') THEN %s ELSE 0 END),0),0) AS SIGNED),
+		CAST(ROUND(COALESCE(SUM(CASE WHEN STR_TO_DATE(periode_mulai,'%%d/%%m/%%Y') BETWEEN %s AND as_of_date THEN %s ELSE 0 END),0),0) AS SIGNED)`, outstanding, outstanding, periodStartSQL(mode), original)
+}
+
 const financialCOAs = "'1','323','558','5','4','401','402','403','410','501','502','511','110','121','122','100','111','112','211','212','213','219','2011008','2011001','2011004','2011005','2011006','2011007','208','221','2312200','2312201','2212111','2212116','2212199'"
 
 func (q reader) BalanceSheetPosition(ctx context.Context, days []time.Time, branch string) (map[string]balancePosition, error) {
 	mark, args := dates(days)
 	where, bargs := scope("source_location_id", branch)
 	args = append(args, bargs...)
-	query := fmt.Sprintf(`SELECT as_of_date, co_a_no,
-		CAST(ROUND(COALESCE(SUM(%s * CASE WHEN LEFT(co_a_no,1) IN ('2','3','4','6') THEN -1 ELSE 1 END),0),0) AS SIGNED)
+	query := fmt.Sprintf(`SELECT as_of_date, co_a_no,%s
 		FROM %s WHERE as_of_date IN (%s) AND co_a_no IN (%s)%s
-		GROUP BY as_of_date, co_a_no`, money("last_balance"), q.tables.balance, mark, financialCOAs, where)
+		GROUP BY as_of_date, co_a_no`, balanceProjection(), q.tables.balance, mark, financialCOAs, where)
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -242,7 +256,11 @@ func (q reader) BalanceSheetPosition(ctx context.Context, days []time.Time, bran
 	return out, rows.Err()
 }
 
-func (q reader) Maturities(ctx context.Context, day time.Time, branch string) ([]maturityRow, error) {
+func balanceProjection() string {
+	return fmt.Sprintf(`CAST(ROUND(COALESCE(SUM(%s * CASE WHEN LEFT(co_a_no,1) IN ('2','3','4','6') THEN -1 ELSE 1 END),0),0) AS SIGNED)`, money("last_balance"))
+}
+
+func (q reader) Maturities(ctx context.Context, day time.Time, branch string, limit int) ([]maturityRow, error) {
 	where, bargs := scope("branch_code", branch)
 	args := append([]any{day}, bargs...)
 	query := fmt.Sprintf(`SELECT customer_name,account_no,LEFT(branch_code,3),DATE(maturity_date),
@@ -250,6 +268,10 @@ func (q reader) Maturities(ctx context.Context, day time.Time, branch string) ([
 		FROM %s WHERE as_of_date=?%s AND maturity_date >= ?
 		ORDER BY maturity_date,account_no`, money("nominal"), q.tables.deposits, where)
 	args = append(args, day)
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
 	rows, err := q.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
