@@ -102,11 +102,15 @@ func TestComparisonAndTrend(t *testing.T) {
 	if len(d.Groups) != 2 || len(d.Series) != 4 {
 		t.Fatalf("loan groups or trends changed: %+v", d)
 	}
-	for i, category := range []string{"channeling", "organik"} {
+	for i, category := range []string{"organik", "channeling"} {
 		if len(d.Groups[i].Metrics) != 2 {
 			t.Fatalf("%s has %d metrics", category, len(d.Groups[i].Metrics))
 		}
-		for j, key := range []string{"booking", "bade"} {
+		position := "bade"
+		if category == "channeling" {
+			position = "plafond"
+		}
+		for j, key := range []string{"booking", position} {
 			metric := d.Groups[i].Metrics[j]
 			points := d.Series[i*2+j].Points
 			if metric.Key != key || metric.Value != s.sum(f, "kredit", category, key) || metric.Previous != s.sum(domain.Previous(f), "kredit", category, key) {

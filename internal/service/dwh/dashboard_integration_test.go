@@ -113,11 +113,9 @@ func TestLiveReconciliation(t *testing.T) {
 	check("deposits DPK+ABP", ddpk.Metrics[0].Value+dabp.Metrics[0].Value, deposits)
 	check("deposits ABP", dabp.Metrics[0].Value, depositsABP)
 	check("overview deposits", overview.Metrics[1].Value, deposits)
-	check("organik BADE", loans.Groups[1].Metrics[1].Value, outstanding)
+	check("organik BADE", loans.Groups[0].Metrics[1].Value, outstanding)
 	check("overview BADE", overview.Metrics[2].Value, outstanding)
-	check("organik booking", loans.Groups[1].Metrics[0].Value, booking)
-	check("channeling booking", loans.Groups[0].Metrics[0].Value, 0)
-	check("channeling BADE", loans.Groups[0].Metrics[1].Value, 0)
+	check("organik booking", loans.Groups[0].Metrics[0].Value, booking)
 	check("NPL", overview.Secondary[1].Value, percent(bad, outstanding))
 	check("LDR", overview.Secondary[0].Value, percent(loanCOA, depositCOA))
 	check("financial NPL", fin.Groups[0].Metrics[4].Value, overview.Secondary[1].Value)
@@ -166,7 +164,7 @@ func TestLiveReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check("monthly booking", ml.Groups[1].Metrics[0].Value, monthlyBooking)
+	check("monthly booking", ml.Groups[0].Metrics[0].Value, monthlyBooking)
 	booked, err := s.GetNominative(ctx, domain.NominativeFilter{Filter: mf, Domain: "kredit", Category: "organik", Metric: "booking"})
 	if err != nil {
 		t.Fatal(err)

@@ -10,15 +10,19 @@ import (
 	"time"
 
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/domain"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/newsinergi"
 )
 
 type DashboardService struct {
 	repo, realtime *Repository
+	channeling     *newsinergi.Repository
 	watermark      atomic.Int64
 	now            func() time.Time
 	snapshot       func(context.Context) (time.Time, time.Time, bool, error)
 	staleAfter     time.Duration
 }
+
+func (s *DashboardService) SetChanneling(repo *newsinergi.Repository) { s.channeling = repo }
 
 func NewDashboardService(repo *Repository, watermark ...time.Time) *DashboardService {
 	s := &DashboardService{repo: repo}
@@ -411,28 +415,37 @@ func (s *DashboardService) GetLoans(ctx context.Context, f domain.Filter) (domai
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
+	channeling := map[string]newsinergi.Position{}
+	if s.channeling != nil {
+		filters := append(points(f), domain.Previous(f))
+		channeling, err = s.channeling.Positions(ctx, filters)
+		if err != nil {
+			return domain.Dashboard{}, err
+		}
+	}
 	d := domain.Dashboard{Title: "Kredit", Subtitle: "Channeling dan Organik"}
-	if _, ok := x.loans[key(f.Date)]; !ok {
+	if _, ok := x.loans[key(f.Date)]; !ok && !channeling[key(f.Date)].Exists {
 		d.Empty = true
 		return d, nil
 	}
-	for _, cat := range []string{"channeling", "organik"} {
-		value := func(p domain.Filter) loanPosition {
-			if cat == "channeling" {
-				return loanPosition{}
-			}
-			return x.loans[key(p.Date)]
-		}
-		current, previous := value(f), value(domain.Previous(f))
-		name := strings.ToUpper(cat)
-		d.Groups = append(d.Groups, domain.Group{Title: name, Metrics: []domain.Metric{
-			metric("Booking", "rupiah", "kredit", cat, "booking", current.Booking, previous.Booking),
-			metric("BADE", "rupiah", "kredit", cat, "bade", current.Outstanding, previous.Outstanding),
-		}})
-		d.Series = append(d.Series,
-			trend(f, name+" Booking", func(p domain.Filter) int64 { return value(p).Booking }),
-			trend(f, name+" BADE", func(p domain.Filter) int64 { return value(p).Outstanding }))
-	}
+	loan := func(p domain.Filter) loanPosition { return x.loans[key(p.Date)] }
+	current, previous := loan(f), loan(domain.Previous(f))
+	d.Groups = append(d.Groups, domain.Group{Title: "ORGANIK", Metrics: []domain.Metric{
+		metric("Booking", "rupiah", "kredit", "organik", "booking", current.Booking, previous.Booking),
+		metric("BADE", "rupiah", "kredit", "organik", "bade", current.Outstanding, previous.Outstanding),
+	}})
+	d.Series = append(d.Series,
+		trend(f, "ORGANIK Booking", func(p domain.Filter) int64 { return loan(p).Booking }),
+		trend(f, "ORGANIK BADE", func(p domain.Filter) int64 { return loan(p).Outstanding }))
+	channel := func(p domain.Filter) newsinergi.Position { return channeling[key(p.Date)] }
+	cc, cp := channel(f), channel(domain.Previous(f))
+	d.Groups = append(d.Groups, domain.Group{Title: "CHANNELING", Metrics: []domain.Metric{
+		metric("Booking", "rupiah", "kredit", "channeling", "booking", cc.Booking, cp.Booking),
+		metric("Plafond", "rupiah", "kredit", "channeling", "plafond", cc.Plafond, cp.Plafond),
+	}})
+	d.Series = append(d.Series,
+		trend(f, "CHANNELING Booking", func(p domain.Filter) int64 { return channel(p).Booking }),
+		trend(f, "CHANNELING Plafond", func(p domain.Filter) int64 { return channel(p).Plafond }))
 	return d, nil
 }
 

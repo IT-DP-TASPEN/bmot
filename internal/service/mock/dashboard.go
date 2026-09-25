@@ -36,6 +36,10 @@ func (s *DashboardService) sum(f domain.Filter, kind, category, metric string) i
 		switch metric {
 		case "balance", "bade":
 			total += balance(a, f.Date)
+		case "plafond":
+			if !f.Date.Before(domain.FirstMockDate) {
+				total += a.base
+			}
 		case "booking":
 			total += booking(a, domain.PeriodStart(f), f.Date)
 		case "noa":
@@ -188,14 +192,18 @@ func (s *DashboardService) GetLoans(_ context.Context, f domain.Filter) (domain.
 		return domain.Dashboard{Title: "Kredit", Subtitle: "Channeling dan Organik", Empty: true}, nil
 	}
 	d := domain.Dashboard{Title: "Kredit", Subtitle: "Channeling dan Organik"}
-	for _, cat := range []string{"channeling", "organik"} {
+	for _, cat := range []string{"organik", "channeling"} {
 		label := strings.ToUpper(cat)
+		position, positionLabel := "bade", "BADE"
+		if cat == "channeling" {
+			position, positionLabel = "plafond", "Plafond"
+		}
 		g := domain.Group{Title: label, Metrics: []domain.Metric{
 			s.metric(f, "Booking", "kredit", cat, "booking", "rupiah"),
-			s.metric(f, "BADE", "kredit", cat, "bade", "rupiah"),
+			s.metric(f, positionLabel, "kredit", cat, position, "rupiah"),
 		}}
 		d.Groups = append(d.Groups, g)
-		d.Series = append(d.Series, s.trend(f, "kredit", cat, "booking", label+" Booking"), s.trend(f, "kredit", cat, "bade", label+" BADE"))
+		d.Series = append(d.Series, s.trend(f, "kredit", cat, "booking", label+" Booking"), s.trend(f, "kredit", cat, position, label+" "+positionLabel))
 	}
 	return d, nil
 }

@@ -193,7 +193,7 @@ func charts(s []domain.Series, page, mode string) []Chart {
 		}
 	case "kredit":
 		if len(s) >= 4 {
-			return []Chart{makeChart("Tren Booking", []domain.Series{s[0], s[2]}), makeChart("Tren BADE", []domain.Series{s[1], s[3]})}
+			return []Chart{makeChart("Tren Booking", []domain.Series{s[0], s[2]}), makeChart("Tren BADE Organik", s[1:2]), makeChart("Tren Plafond Channeling", s[3:4])}
 		}
 	case "deposito":
 		if len(s) > 0 {

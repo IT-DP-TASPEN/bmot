@@ -15,6 +15,7 @@ import (
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/dwh"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/mock"
+	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/newsinergi"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/service/realtime"
 	"github.com/ibldzn/dashboard-roro-jongrang/internal/view"
 )
@@ -47,6 +48,7 @@ func main() {
 	var dashboard service.DashboardService
 	var latestDate time.Time
 	var closeDWH func() error
+	var closeNewsinergi func() error
 	var store *realtime.Store
 	var refresh *realtime.Refresher
 	switch source {
@@ -58,8 +60,15 @@ func main() {
 			log.Fatal("DWH unavailable; check DWH_DBSTRING and read-only connectivity")
 		}
 		closeDWH = repo.Close
+		channeling, err := newsinergi.Open(context.Background(), os.Getenv("DWH_DBSTRING"))
+		if err != nil {
+			log.Fatal("Newsinergi unavailable; check DWH_DBSTRING and read-only connectivity")
+		}
+		closeNewsinergi = channeling.Close
 		if source == "dwh" {
-			dashboard, latestDate = dwh.NewDashboardService(repo, latest), latest
+			s := dwh.NewDashboardService(repo, latest)
+			s.SetChanneling(channeling)
+			dashboard, latestDate = s, latest
 			break
 		}
 		store, err = realtime.Open(context.Background(), os.Getenv("APP_DBSTRING"))
@@ -81,6 +90,7 @@ func main() {
 			return p.Date, p.PublishedAt, true, nil
 		}
 		hybrid := dwh.NewHybridDashboardService(repo, dwh.NewSnapshotRepository(store.DB()), latest, snapshot, staleAfter)
+		hybrid.SetChanneling(channeling)
 		dashboard = hybrid
 		latestDate = realtime.Today()
 		go func() {
@@ -105,6 +115,9 @@ func main() {
 	}
 	if closeDWH != nil {
 		defer closeDWH()
+	}
+	if closeNewsinergi != nil {
+		defer closeNewsinergi()
 	}
 	if store != nil {
 		defer store.Close()
