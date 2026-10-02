@@ -64,7 +64,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, errors.New("invalid APP_DBSTRING")
 	}
-	if cfg.DBName == "" || strings.EqualFold(cfg.DBName, "dwhv2") || strings.EqualFold(cfg.DBName, "newsinergi") {
+	if cfg.DBName == "" || strings.EqualFold(cfg.DBName, "dwh") || strings.EqualFold(cfg.DBName, "newsinergi") {
 		return nil, errors.New("APP_DBSTRING must name a separate local application database")
 	}
 	cfg.ParseTime = true

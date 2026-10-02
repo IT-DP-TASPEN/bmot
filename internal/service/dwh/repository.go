@@ -67,8 +67,8 @@ func Open(ctx context.Context, dsn string) (*Repository, time.Time, error) {
 	cfg.MultiStatements = false
 	cfg.Timeout = 5 * time.Second
 	cfg.ReadTimeout = 30 * time.Second
-	if cfg.DBName != "dwhv2" {
-		return nil, time.Time{}, errors.New("DWH_DBSTRING must target dwhv2")
+	if cfg.DBName != "dwh" {
+		return nil, time.Time{}, errors.New("DWH_DBSTRING must target dwh")
 	}
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {

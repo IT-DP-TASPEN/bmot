@@ -59,7 +59,7 @@ func (r *Repository) Daily(ctx context.Context, through time.Time) ([]DailyBooki
 
 func Open(ctx context.Context, dwhDSN string) (*Repository, error) {
 	cfg, err := mysql.ParseDSN(dwhDSN)
-	if err != nil || cfg.DBName != "dwhv2" {
+	if err != nil {
 		return nil, errors.New("invalid DWH_DBSTRING for Newsinergi")
 	}
 	cfg.DBName = "newsinergi"

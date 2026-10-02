@@ -114,6 +114,7 @@ func (f *Fincloud) login(ctx context.Context) (string, error) {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil || payload.Status != "ok" || payload.Data.Result.SessionID == "" {
+		fmt.Printf("%+v\n", payload)
 		return "", errors.New("Fincloud login response invalid")
 	}
 	return payload.Data.Result.SessionID, nil

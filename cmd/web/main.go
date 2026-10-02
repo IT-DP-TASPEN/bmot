@@ -78,7 +78,7 @@ func main() {
 			log.Fatal("DWH unavailable; check DWH_DBSTRING and read-only connectivity")
 		}
 		closeDWH = repo.Close
-		channeling, err := newsinergi.Open(context.Background(), os.Getenv("DWH_DBSTRING"))
+		channeling, err := newsinergi.Open(context.Background(), os.Getenv("APP_DBSTRING"))
 		if err != nil {
 			log.Fatal("Newsinergi unavailable; check DWH_DBSTRING and read-only connectivity")
 		}
